@@ -924,6 +924,12 @@ export function resolveGpwRoot({ configured = '', packageDir = '', dshHome = '',
   const own = String(configured || '').trim();
   if (own) return own;
   const candidates = [];
+  /**
+   * ① **包里自带的 `pet/`**（单包即插即用：装上插件就能跑，不需要第二个仓库/目录）
+   * ② 开发时的兄弟仓库（两个仓库并排）
+   * ③ DSH 家目录下的旧安装
+   */
+  if (packageDir) candidates.push(join(packageDir, 'pet'));
   if (packageDir) candidates.push(join(dirname(packageDir), 'dsh-pet-gpw'));
   if (dshHome) candidates.push(join(dshHome, 'dsh-pet-gpw'));
   return candidates.find((dir) => fsExists(join(dir, 'runtime', 'gpw-main.cjs'))) || candidates[0] || '';

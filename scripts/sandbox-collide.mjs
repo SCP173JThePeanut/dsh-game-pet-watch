@@ -21,7 +21,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const PET_REPO = process.env.GPW_SANDBOX_PET_REPO || join(dirname(ROOT), 'dsh-pet-gpw');
+/** 单包布局：桌宠在 `<插件>/pet`；开发时可用 GPW_SANDBOX_PET_REPO 指回兄弟仓库 */
+const PET_REPO = process.env.GPW_SANDBOX_PET_REPO || [join(ROOT, 'pet'), join(dirname(ROOT), 'dsh-pet-gpw')].find((d) => existsSync(join(d, 'runtime', 'gpw-main.cjs'))) || join(ROOT, 'pet');
 const KEEP = process.argv.includes('--keep');
 const TEMP = join(tmpdir(), `gpw-collide-${Date.now()}`);
 const HOME_DIR = join(TEMP, '.dsh');

@@ -1,0 +1,10 @@
+# 打包时不要带上的东西
+# 教训：`npm pack` 会把上一次打包出来的 tgz 也收进去 → 每次重装都长大一圈
+# （实测 79MB → 156MB → 234MB，递归套娃）。这条必须在 pack 时生效。
+*.tgz
+.shots/
+.run*.log
+.sweep.log
+.sheet*.out
+debug.log
+.run-manual.log

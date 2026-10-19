@@ -1,0 +1,17 @@
+# 构建产物 / 打包件（发布包在 dist 里，不进仓库）
+*.tgz
+dist/
+
+# 开发时的截图与临时日志
+.shots/
+*.log
+.sheet*.out
+*.bak
+*.bak-*
+
+# 依赖
+node_modules/
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db

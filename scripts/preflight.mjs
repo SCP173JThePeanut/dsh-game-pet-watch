@@ -274,7 +274,8 @@ try {
   const gpwRoot = String(entryConfig?.gpwRoot || '').replace(/\/+$/, '');
   const petCandidates = [
     gpwRoot ? join(gpwRoot, 'assets', 'config.jsonc') : '',
-    join(dirname(ROOT), 'dsh-pet-gpw', 'assets', 'config.jsonc'), // 兄弟仓库（开发布局）
+    join(ROOT, 'pet', 'assets', 'config.jsonc'), // 单包布局：桌宠就在包里
+  join(dirname(ROOT), 'dsh-pet-gpw', 'assets', 'config.jsonc'), // 兄弟仓库（老开发布局）
     join(PROFILE, 'node_modules', 'dsh-pet', 'assets', 'config.jsonc'), // 借原版素材
   ].filter(Boolean);
   const petAssets = petCandidates.find((p) => existsSync(p));

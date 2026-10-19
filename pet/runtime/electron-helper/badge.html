@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' http: https: data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; connect-src http: https:;"
+    />
+    <title>桌宠状态 · dsh-pet-gpw</title>
+    <style>
+      /*
+       * 「观察中」胶囊 —— 独立小窗，贴在宠物**右上角**。
+       *
+       * 为什么独立：它画在宠物那个大透明窗里时，"随时能点到"要求窗口可交互，
+       * 而宠物窗的点击穿透由副本自动判定控制 —— 两个需求冲突，硬凑就会互相打架、
+       * 而且窗口一旦可交互就整块挡住桌面。
+       * 独立成小窗后：**永远可交互**（随时点得到），且只占 168x28。
+       *
+       * 注意：**输入框不在这里**。它有自己的小窗（input.html），贴在宠物**脚底下方**，
+       * 平时隐藏。拆两个窗的原因：两者分处宠物上/下两侧，合一个窗就得让那个窗横跨宠物全身，
+       * 永远可交互的面会大很多。
+       */
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0; padding: 0; width: 100%; height: 100%;
+        background: transparent; overflow: hidden; user-select: none;
+        font-family: 'Microsoft YaHei UI', 'Segoe UI', sans-serif;
+      }
+      #badge {
+        position: absolute; top: 0; right: 0;
+        display: flex; align-items: center; gap: 5px;
+        padding: 3px 8px; border-radius: 999px;
+        background: rgba(24, 24, 28, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        color: #e8e8ee; font-size: 11px; white-space: nowrap;
+        cursor: pointer;
+      }
+      #badge .dot { width: 7px; height: 7px; border-radius: 50%; background: #9a9aa8; flex: none; }
+      #badge .pin { opacity: .85; }
+      #badge .pin.on { opacity: 1; filter: drop-shadow(0 0 4px rgba(77,141,255,.9)); }
+      /*
+       * 「打开观察面板」按钮。
+       * 它是**面板的唯一入口**（以前浮层里有个入口，浮层搬到独立小窗时丢了，
+       * 导致面板打不开 —— 这里补回来）。单独一个元素，不用点整颗胶囊，
+       * 否则会和"点胶囊切换置顶"抢同一个点击。
+       */
+      #badge .panel {
+        margin-left: 2px; padding: 0 3px; border-left: 1px solid rgba(255,255,255,.18);
+        opacity: .8; cursor: pointer;
+      }
+      #badge .panel:hover { opacity: 1; color: #4d8dff; }
+    </style>
+  </head>
+  <body>
+    <div id="badge" title="点文字切换置顶固定；▤ 打开观察面板">
+      <span class="dot"></span>
+      <span class="label" title="点一下切换置顶固定">连接中…</span>
+      <span class="panel" title="打开观察面板">▤</span>
+      <span class="pin" title="置顶固定状态">📌</span>
+    </div>
+    <script src="./badge.js"></script>
+  </body>
+</html>

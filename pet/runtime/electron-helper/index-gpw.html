@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' http: https: data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; media-src 'self' http: https: blob:; font-src 'self' http: https: data:"
+    />
+    <title>dsh-pet-gpw（独立副本）</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+        font-family: 'Microsoft YaHei UI', 'Segoe UI', sans-serif;
+        user-select: none;
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+      /* ---- 以下 .pet-* 样式与原版桌面助手逐条一致（渲染逻辑用原版 sprite.js，样式照搬避免观感走样） ---- */
+      .pet-sprite {
+        position: absolute;
+        left: 0;
+        top: 0;
+        pointer-events: none;
+      }
+      .pet-stage {
+        position: relative;
+        width: var(--pet-size, 462px);
+        height: calc(var(--pet-size, 462px) * 9 / 16);
+        pointer-events: none;
+      }
+      video.pet-video {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.18s ease;
+      }
+      video.pet-video.is-front {
+        opacity: 1;
+      }
+      .pet-hit {
+        position: absolute;
+        pointer-events: auto;
+        cursor: grab;
+        z-index: 1;
+      }
+      .pet-hit.dragging {
+        cursor: grabbing;
+      }
+      .pet-bubble {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: calc(100% - var(--pet-size, 462px) * 0.108);
+        min-width: calc(var(--pet-size, 462px) * 0.26);
+        max-width: calc(var(--pet-size, 462px) * 0.5);
+        padding: calc(var(--pet-size, 462px) * 0.022) calc(var(--pet-size, 462px) * 0.03);
+        border-radius: calc(var(--pet-size, 462px) * 0.035);
+        background: rgba(255, 255, 255, 0.92);
+        color: #2b2b2b;
+        font-family:
+          'ShangshouSoftCandy', 'Yuanti SC', 'YouYuan', '幼圆', 'Comic Sans MS', 'PingFang SC', 'Microsoft YaHei',
+          sans-serif;
+        font-size: calc(var(--pet-size, 462px) * 0.0455);
+        line-height: 1.6;
+        z-index: 3;
+        pointer-events: none;
+        box-shadow:
+          0 calc(var(--pet-size, 462px) * 0.009) calc(var(--pet-size, 462px) * 0.035) rgba(0, 0, 0, 0.14),
+          0 1px 3px rgba(0, 0, 0, 0.08);
+        opacity: 0;
+        transition: opacity 0.25s ease;
+        white-space: nowrap;
+      }
+      .pet-bubble::after {
+        content: '';
+        position: absolute;
+        left: 50%;
+        bottom: calc(var(--pet-size, 462px) * -0.017);
+        transform: translateX(-50%);
+        border: calc(var(--pet-size, 462px) * 0.017) solid transparent;
+        border-top-color: rgba(255, 255, 255, 0.92);
+        border-bottom: none;
+      }
+      .pet-bubble.is-on {
+        opacity: 1;
+      }
+      .pet-bubble.is-whisper {
+        font-size: calc(var(--pet-size, 462px) * 0.034);
+        min-width: calc(var(--pet-size, 462px) * 0.1);
+        max-width: calc(var(--pet-size, 462px) * 0.5);
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+      .pet-bub-row {
+        display: flex;
+        justify-content: space-between;
+        gap: calc(var(--pet-size, 462px) * 0.03);
+      }
+      .pet-bub-sub {
+        font-size: calc(var(--pet-size, 462px) * 0.035);
+        color: rgba(43, 43, 43, 0.6);
+      }
+      .pet-bub-err {
+        color: #d94f3d;
+        font-size: calc(var(--pet-size, 462px) * 0.035);
+      }
+      .pet-bub-tier {
+        font-weight: 700;
+      }
+      .pet-bub-tier-peak {
+        color: #e53935;
+      }
+      .pet-bub-tier-idle {
+        color: #2e9e4f;
+      }
+      .pet-error {
+        position: fixed;
+        left: 50%;
+        top: 24px;
+        transform: translateX(-50%);
+        max-width: 80vw;
+        background: rgba(217, 79, 61, 0.95);
+        color: #fff;
+        border-radius: 12px;
+        padding: 10px 16px;
+        font-size: 13px;
+        line-height: 1.5;
+        display: none;
+        z-index: 999;
+        pointer-events: none;
+        word-break: break-all;
+      }
+      .pet-error.visible {
+        display: block;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        video.pet-video {
+          transition: none;
+        }
+      }
+
+      /* ---- 副本新增：悬停输入框 / 状态胶囊 / 临时提示 ---- */
+      #gpw-input {
+        position: absolute;
+        display: none;
+        z-index: 40;
+        pointer-events: auto;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 7px;
+        border-radius: 10px;
+        background: rgba(24, 24, 28, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
+        font-size: 12px;
+      }
+      #gpw-input.on {
+        display: flex;
+      }
+      #gpw-input input {
+        width: 300px;
+        border: none;
+        outline: none;
+        background: transparent;
+        color: #f2f2f6;
+        font: inherit;
+      }
+      #gpw-input input::placeholder {
+        color: rgba(242, 242, 246, 0.45);
+      }
+      #gpw-input button {
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: rgba(77, 141, 255, 0.9);
+        color: #fff;
+        border-radius: 7px;
+        padding: 2px 9px;
+        font: inherit;
+        cursor: pointer;
+      }
+      #gpw-input button[disabled] {
+        opacity: 0.5;
+        cursor: default;
+      }
+      #gpw-toast {
+        position: absolute;
+        z-index: 41;
+        max-width: 320px;
+        padding: 6px 9px;
+        border-radius: 9px;
+        background: rgba(24, 24, 28, 0.94);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        color: #e8e8ee;
+        font-size: 12px;
+        line-height: 1.55;
+        display: none;
+        word-break: break-word;
+      }
+      #gpw-toast.on {
+        display: block;
+      }
+      #gpw-badge {
+        position: absolute;
+        z-index: 42;
+        display: none;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: rgba(24, 24, 28, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        color: #e8e8ee;
+        font-size: 11px;
+        pointer-events: auto;
+        cursor: pointer;
+      }
+      #gpw-badge.on {
+        display: flex;
+      }
+      #gpw-badge .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #9a9aa8;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <div id="pet-error" class="pet-error"></div>
+    <!-- 副本新增的三个浮层（原版文件一行不改） -->
+    <div id="gpw-input">
+      <input type="text" placeholder="跟鱼说一句，回车发送" />
+      <button type="button">发送</button>
+    </div>
+    <div id="gpw-toast"></div>
+    <div id="gpw-badge" title="右键宠物打开观察面板">
+      <span class="dot"></span><span class="label">游戏观察</span>
+    </div>
+    <!-- 共享纯逻辑 + 宠物本体：原版 dsh-pet 桌面助手的同一批文件（未修改） -->
+    <script src="./shared-core.js"></script>
+    <script src="./constants.js"></script>
+    <script src="./sprite.js"></script>
+    <script src="./events.js"></script>
+    <script src="./renderer.js"></script>
+    <script src="./gpw-overlay.js"></script>
+  </body>
+</html>

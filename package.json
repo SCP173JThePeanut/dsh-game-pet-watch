@@ -1,8 +1,8 @@
 {
   "name": "dsh-game-pet-watch",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
-  "description": "盯游戏画面的桌宠大脑：多模态模型决定要不要说话，说就打在桌面宠物气泡上；支持多鱼隔离、记忆压缩、图库、QQ、碰撞台词与跨进程宠物互撞。",
+  "description": "DSH 桌宠观察插件（自带桌宠运行时）：看画面说话 / 游戏事件 / 多鱼记忆 / 碰撞",
   "type": "module",
   "exports": {
     ".": "./index.js",
@@ -25,7 +25,8 @@
     "scripts/backup-all.mjs",
     "scripts/uninstall-all.mjs",
     "scripts/restore-all.mjs",
-    "scripts/install-local.mjs"
+    "scripts/install-local.mjs",
+    "pet"
   ],
   "scripts": {
     "test": "node tests/first-install.test.mjs && node tests/exports.test.mjs && node tests/fish.test.mjs && node tests/config-store.test.mjs && node tests/images.test.mjs && node tests/memes.test.mjs && node tests/multiline.test.mjs && node tests/collide.test.mjs",

@@ -368,6 +368,18 @@ eq(plugin.normalizeConfig({ gohReactionBudget: 0 }).gohReactionBudget, 0, '0 = �
   eq(plugin.parseDecision('{"remember":"只在心里记"}').phrase, undefined, '不说话也能记');
 }
 
+// ── 9i. 单包布局：桌宠就在 <插件>/pet ──
+{
+  const { resolveGpwRoot } = plugin;
+  const fake = (...parts) => parts.join('/');
+  const root = resolveGpwRoot({
+    packageDir: '/x/node_modules/dsh-game-pet-watch',
+    fsExists: (p) => p === fake('/x/node_modules/dsh-game-pet-watch/pet', 'runtime', 'gpw-main.cjs'),
+  });
+  eq(String(root).endsWith('pet'), true, '默认就用包里的 pet/（装上即用，不需要第二个仓库）');
+  eq(resolveGpwRoot({ configured: 'D:/mine', packageDir: '/x', fsExists: () => true }), 'D:/mine', '配置优先');
+}
+
 // ── 9b. 记忆三件套：短期窗口 / 压缩阈值 / 长期上限（设置页滑块就是这三个键） ──
 eq(plugin.normalizeConfig({}).memoryRecentTurns, 12, '短期记忆默认 12 条');
 eq(plugin.normalizeConfig({ memoryRecentTurns: 0 }).memoryRecentTurns, 0, '短期记忆 0 = 不带');

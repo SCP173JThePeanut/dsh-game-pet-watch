@@ -27,7 +27,8 @@ import { fileURLToPath } from 'node:url';
 
 const PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const WORKSPACE = dirname(PLUGIN_ROOT);
-const PET_REPO = join(WORKSPACE, 'dsh-pet-gpw');
+/** 桌宠现在就在插件包里的 `pet/`（单包发布）；开发时仍可用 `--pet-repo` 指到别处 */
+const PET_REPO = process.env.GPW_PET_REPO || join(PLUGIN_ROOT, 'pet');
 const DSH = process.env.DSH_HOME || join(homedir(), '.dsh');
 const PROFILE = join(DSH, 'profiles', process.env.DSH_PROFILE || 'desktop');
 const INSTALL_PLUGIN = join(PROFILE, 'node_modules', 'dsh-game-pet-watch');

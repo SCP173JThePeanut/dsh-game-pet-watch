@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' http: https: data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; connect-src http: https:;"
+    />
+    <title>游戏观察 · dsh-pet-gpw</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0; padding: 0; width: 100%; height: 100%;
+        background: #1b1b1f; color: #e8e8ee; overflow: hidden;
+        font-family: 'Microsoft YaHei UI', 'Segoe UI', sans-serif;
+        font-size: 12px; line-height: 1.6; user-select: none;
+      }
+      .head {
+        display: flex; align-items: center; gap: 6px; padding: 7px 9px;
+        background: #232329; border-bottom: 1px solid #33333c; -webkit-app-region: drag;
+      }
+      .head .btn, .head .badge { -webkit-app-region: no-drag; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+      .title { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .badge { border: 1px solid #e0a53c; color: #e0a53c; border-radius: 5px; padding: 0 5px; font-size: 10px; }
+      .btn {
+        border: 1px solid #3a3a44; background: transparent; color: #b9b9c6;
+        border-radius: 6px; padding: 1px 7px; font-size: 11px; cursor: pointer;
+      }
+      .btn:hover { color: #fff; border-color: #4a4a57; }
+      .btn[disabled] { opacity: .45; cursor: default; }
+      .primary {
+        border: 1px solid #4d8dff; background: #4d8dff; color: #fff;
+        border-radius: 6px; padding: 2px 10px; font-size: 11px; cursor: pointer;
+      }
+      .primary[disabled] { opacity: .5; cursor: default; }
+      .tabs { display: flex; gap: 3px; padding: 5px 8px 0; background: #232329; }
+      .tab {
+        border: none; background: transparent; color: #9a9aa8;
+        padding: 3px 9px; border-radius: 6px 6px 0 0; cursor: pointer; font: inherit;
+      }
+      .tab.on { background: #1b1b1f; color: #e8e8ee; font-weight: 600; }
+      /*
+       * 布局改成"头/标签固定、中间滚动、脚固定"的 flex 列。
+       * 原来用 `height: calc(100% - 74px)` 死算高度：面板被 resizable 拉高/拉矮后这个值不再成立，
+       * 内容超出时要么被裁掉、要么滚不到底——用户报的"内容超出框没有滑块"就是这个。
+       */
+      /*
+       * 布局：窗口(100%) → #body 占满 → 里面 flex 列（头/标签固定，页面滚动，脚固定）。
+       *
+       * 为什么不是"外层滚动"：#body 的 h 之前是写死的 715.656px（= 100% - 74px，74 是 typo，
+       * 实际头+标签+脚 = 96px），窗口只有 660px，于是它超出窗口 56px，而 html{overflow:hidden}
+       * 把超出的部分**直接裁掉**——用户看到的就是"内容缺一块、还没有滑块"。
+       * 现在 #body 不再有固定高度，滚动交给它里面的 #page（唯一滚动容器）。
+       */
+      #body { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+      /* 滚动条：WebView 默认细到几乎看不见，明确画出来（亮色，跟深色底对比足够） */
+      /* #page：唯一的滚动容器。
+         它不用 flex 高度（父级 #body 现在是普通块），而是"最多占满窗口剩余高度"：
+         max-height 用 100% 减掉页头+标签+页脚的固定高度（35+30+31=96px），
+         内容少时按内容高，内容多时封顶并出现滚动条——两种情况下都不会溢出窗口被裁掉。 */
+      #page {
+        max-height: calc(100vh - 96px);
+        overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
+      }
+      #page::-webkit-scrollbar { width: 10px; }
+      #page::-webkit-scrollbar-track { background: transparent; }
+      #page::-webkit-scrollbar-thumb { background: rgba(255,255,255,.22); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
+      #page::-webkit-scrollbar-thumb:hover { background: rgba(77,141,255,.55); background-clip: content-box; }
+      .range { width: 100%; accent-color: #4d8dff; }
+      .range-row { display: flex; align-items: center; gap: 8px; }
+      .range-row .val { flex: none; width: 46px; text-align: right; color: #9a9aa8; font-variant-numeric: tabular-nums; }
+      .foot {
+        display: flex; align-items: center; gap: 8px; padding: 5px 9px;
+        border-top: 1px solid #33333c; background: #232329; color: #9a9aa8;
+      }
+      .foot a { color: #4d8dff; text-decoration: none; cursor: pointer; }
+      .meta { display: flex; flex-wrap: wrap; gap: 3px 12px; color: #9a9aa8; }
+      .say { background: #232329; border: 1px solid #33333c; border-radius: 8px; padding: 7px 9px; min-height: 30px; word-break: break-word; }
+      .box { border-radius: 8px; padding: 5px 8px; word-break: break-word; }
+      .box.warn { border: 1px solid #e0a53c; color: #e0a53c; }
+      .box.err { border: 1px solid #e2564a; color: #e2564a; }
+      .sec { border-top: 1px solid #33333c; padding-top: 7px; display: flex; flex-direction: column; gap: 5px; }
+      .row { display: flex; gap: 6px; align-items: center; }
+      .row.between { justify-content: space-between; }
+      .dim { color: #9a9aa8; }
+      .who { color: #9a9aa8; flex: none; }
+      .label { color: #9a9aa8; margin-top: 4px; }
+      .input {
+        width: 100%; background: #141418; color: #e8e8ee; border: 1px solid #33333c;
+        border-radius: 7px; padding: 5px 7px; font: inherit; resize: vertical;
+      }
+      .input:focus { outline: none; border-color: #4d8dff; }
+      .input.tall { min-height: 76px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+      .list { display: flex; flex-direction: column; gap: 3px; max-height: 190px; overflow-y: auto; }
+      .list .row { align-items: flex-start; }
+      .list .row span:last-child { word-break: break-word; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div id="body"></div>
+      <div class="foot">
+        <span id="hint" class="dim"></span>
+      </div>
+    </div>
+    <script src="./gpw-panel.js"></script>
+  </body>
+</html>

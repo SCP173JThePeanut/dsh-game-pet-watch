@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>dsh-pet-gpw 抽帧台</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #111;
+        overflow: hidden;
+      }
+      /* 视频与画布都只用于离屏抽帧，不上屏；由主进程 capturePage 取像素 */
+      #sheet {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 离屏抽帧台：把一段 webm 的若干帧画成一张带时间标签的九宫格，
+         主进程用 webContents.capturePage() 取回 PNG。不依赖 ffmpeg。 -->
+    <video id="src" muted playsinline preload="auto" style="display: none"></video>
+    <canvas id="sheet"></canvas>
+    <script src="./frames.js"></script>
+  </body>
+</html>
