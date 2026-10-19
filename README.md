@@ -12,7 +12,8 @@
 ## 这是一个什么项目
 
 **一个会看你打游戏、会记事、能和同类对话的桌面宠物**
-继承了原版绝大部分的功能，同时运行让模型自己选择动画、爬取表情包（图源自：[爱梗图](https://aigengtu.com/)）的能力，加入游戏日志和游戏机制描述文件的读取能力，可以独立管理记忆
+
+继承了原版绝大部分的功能，同时运行让模型自己选择动画、爬取表情包（图源自：[爱梗图](https://aigengtu.com/)）的能力，加入游戏日志和游戏机制描述文件的读取能力，可以独立管理记忆。
 
 ---
 
@@ -33,6 +34,46 @@
 
 ---
 
+## 安装
+
+### 前置
+
+- 已装好 **DeepSeek Harness**（桌面端或 `dsh web` 均可）
+- 能读截图的**多模态模型**（默认跟随 DSH 会话模型）
+
+### 从本仓库安装
+
+```sh
+git clone https://github.com/SCP173JThePeanut/dsh-game-pet-watch
+cd dsh-game-pet-watch
+npm pack                                   # 生成 dsh-game-pet-watch-<版本>.tgz
+```
+
+然后二选一：
+
+```sh
+# ① 命令行（dsh web 用户用 --profile web）
+dsh plugin --profile desktop add ./dsh-game-pet-watch-1.4.0.tgz
+
+# ② 桌面端：应用内「插件管理」→ 安装 → 选上面那个 .tgz
+```
+
+装完**重启 DSH**。第一次启动会自动拉起桌宠，用户数据落在 `~/.dsh/dsh-pet-gpw`。
+
+### 装完你会看到
+
+- 桌面角落出现一只鱼（默认尺寸/位置在设置页可改）
+- 右上角一颗状态胶囊：`观察中 · N` / `已暂停` / `插件离线`
+- 右键宠物 → **记录网页**，能打开聊天记录；右键 → 观察面板看状态/记忆/提示词
+
+### 卸载
+
+```sh
+dsh plugin --profile desktop remove dsh-game-pet-watch
+```
+
+---
+
 ## ⭐ 相对原版新增的功能
 
 ### 1. 看画面说话（"大脑"）
@@ -45,7 +86,7 @@ SILENT                                  ← 不输出
 ```
 
 - 规则写在提示词里，默认：Boss / 残血 / 死亡 / 稀有掉落 / 升级 / 卡关 / 长时间没动 / 主人开口 —— 其余时间一律安静
-- **空闲退避**：键鼠静止 + 游戏里长时间没事件时，观察间隔自动翻倍，减少API调用次数
+- **空闲退避**：键鼠静止 + 游戏里长时间没事件时，观察间隔自动翻倍，减少 API 调用次数
 
 ### 2. 游戏事件 → 立刻反应
 
@@ -71,7 +112,13 @@ SILENT                                  ← 不输出
 - 桌宠右键 →「记录网页」直接打开，**不用记端口**（DSH 每次重启端口都会变，插件靠登记簿自愈）
 - 跨来源去重（同一句话不再显示两遍）、系统条目可隐藏
 
-### 6. 桌面副本的界面
+### 6. 表情包图库
+
+- 从图源抓梗图 → 视觉模型逐张写描述 → 进图库缓存，之后**离线可挑**
+- 每条鱼只认自己名下描述过的图，避免两只鱼互相污染
+- 模型在 `img` 字段里点名字，名字不在图库里就丢弃（不配图，也不报错）
+
+### 7. 桌面副本的界面
 
 | 交互 | 行为 |
 | --- | --- |
@@ -80,24 +127,11 @@ SILENT                                  ← 不输出
 | 状态胶囊 | 右上角 `观察中 · 52` / `已暂停` / `插件离线`，点它开观察面板 |
 | 观察面板 | 状态 / 记录 / 提示词三页签，可改可清 |
 
-### 7. 安装：单包即插即用
-
-插件与桌宠运行时打 **一个包**（`pet/` 就在里面），装一次就行：
-
-```sh
-git clone https://github.com/SCP173JThePeanut/dsh-game-pet-watch
-cd dsh-game-pet-watch
-npm pack                                  # ~60MB：插件 + 桌宠 + 106 段动画
-dsh plugin --profile desktop add ./dsh-game-pet-watch-1.4.0.tgz
-```
-
-装完重启 DSH → 桌宠自动拉起，用户数据在 `~/.dsh/dsh-pet-gpw`。
-
 ---
 
 ## 常用配置
 
-DSH左下角设置页里调整（也可以写 `config.json`）：
+DSH 左下角设置页里调整（也可以写 `config.json`）：
 
 | 键 | 默认 | 作用 |
 | --- | --- | --- |
@@ -119,13 +153,20 @@ DSH左下角设置页里调整（也可以写 `config.json`）：
 
 ## 已知限制
 
-- 目前只能调用DSH的Deepseek V4.1 Flash API
+- 目前只能调用 DSH 的 Deepseek V4.1 Flash API
 - 游戏事件需要你自己提供事件文件或采集器；不填就只有"看画面"这一条路
 - 端口随 DSH 重启变化：插件靠 `~/.dsh/fish-board/registry.json` 获取端口
 
 ---
 
-## 致谢与许可
+## 素材与授权
 
-MIT。原版 [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) © 2026 PC2005-cloud，
-本项目的修改与新增部分 © 2026 SCP173JThePeanut。原版权声明见 [LICENSE](./LICENSE)。
+软件代码与角色素材适用不同授权，请完整阅读：
+
+- [LICENSE](./LICENSE) —— 本仓库插件代码（MIT，© 2026 SCP173JThePeanut）
+- [pet/LICENSE](./pet/LICENSE) —— `pet/`（原版 dsh-pet 的副本，MIT，© 2026 PC2005-cloud）
+- [ASSET_LICENSE.md](./ASSET_LICENSE.md) —— 动画、梗图表情包、字体的逐项说明
+
+动画素材来自 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)；
+梗图图源为 [爱梗图](https://aigengtu.com/)，版权归各原作者，仓库内仅为演示用途。
+`pet/assets/fonts/上首软糖体.ttf` 归字体作者所有，**不要商用**。
