@@ -26,7 +26,9 @@
     "scripts/uninstall-all.mjs",
     "scripts/restore-all.mjs",
     "scripts/install-local.mjs",
-    "pet"
+    "pet",
+    "LICENSE",
+    "README.md"
   ],
   "scripts": {
     "test": "node tests/first-install.test.mjs && node tests/exports.test.mjs && node tests/fish.test.mjs && node tests/config-store.test.mjs && node tests/images.test.mjs && node tests/memes.test.mjs && node tests/multiline.test.mjs && node tests/collide.test.mjs",
@@ -44,5 +46,6 @@
       "platform": "web",
       "immediately": true
     }
-  }
+  },
+  "license": "MIT"
 }

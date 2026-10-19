@@ -1,122 +1,138 @@
-# dsh-game-pet-watch 🎮🐟
+# dsh-game-pet-watch 🐟🎮
 
-**简介.** DSH 的桌宠"大脑"：定时截一张游戏画面，交给多模态模型判断要不要说话；
-要说，就把台词打在桌面宠物（`dsh-pet-gpw` 副本）的气泡上。支持**多只鱼各自隔离**
-（记忆 / 人设 / 图库描述 / QQ / 端口各自一份）、长期记忆自动压缩、表情包图库、
-游戏事件解读、QQ 群聊，以及两只鱼**跨进程真撞**（物理仍在渲染端，插件只出台词）。
+> **本项目修改自 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)**（MIT）。
+> 原版是"会动、会玩、会聊天"的桌面宠物；这里在它之上加了一层**会看、会记、会互相撞**的能力。
 
-一句话数据流：
+<p>
+  <img alt="license" src="https://img.shields.io/github/license/SCP173JThePeanut/dsh-game-pet-watch?color=orange">
+  <img alt="platform" src="https://img.shields.io/badge/platform-DeepSeek%20Harness%20Web-8A2BE2">
+  <img alt="based on" src="https://img.shields.io/badge/based%20on-dsh--pet-ff69b4">
+</p>
 
-```
-定时器 ──截屏──► 模型裁决 ──► 气泡 / QQ
-   │                 └──► 记忆（短期→压缩成长期）
-   └──► 鱼板网络：其它鱼说的话
-```
+## 一句话
+
+装一个包，得到：**一个会看你打游戏、会记事、能和多只同类对话/碰撞的桌面宠物**；
+原版的全部动画与交互（106 段手绘动画、Q 弹、拖拽甩抛、屏幕漫游、右键菜单、pet pack）一样不少。
 
 ---
 
-## 从 GitHub 装（单包，即插即用）
+## 与原版的关系
+
+| | 原版 dsh-pet | 本仓库 |
+| --- | --- | --- |
+| 动画 / 渲染 / 拖拽 / 漫游 / 菜单 | ✅ | ✅ **原样沿用**（`pet/` 是它的独立副本） |
+| 余额动画 / 碎碎念 / 对话 / 工作状态 | ✅ | ✅ 保留 |
+| 桌面透明置顶小窗 | ✅ | ✅ 副本独立进程，可多开 |
+| 看画面决定要不要说话 | ❌ | ⭐ **新增** |
+| 读游戏事件并即时反应 | ❌ | ⭐ **新增** |
+| 长期记忆（自动压缩 + 自己记） | ❌ | ⭐ **新增** |
+| 多只鱼互见（鱼板网络）与记录网页 | ❌ | ⭐ **新增** |
+| 两只鱼跨进程真的撞开 | ❌ | ⭐ **新增** |
+
+**和原版可以并存**：原版该装照装、该用照用；本项目的桌宠是独立进程（默认 7341/7342…），互不干扰。
+
+---
+
+## ⭐ 相对原版新增的功能
+
+### 1. 看画面说话（"大脑"）
+
+定时截一张游戏窗口（或整屏），连同记忆与人设交给多模态模型，模型只回两种结果：
+
+```
+SILENT                                  ← 不值得说话就闭嘴
+{"say":"台词","anim":"动画名","img":"表情包名","remember":"要长期记住的一句话"}
+```
+
+- 规则写死在提示词里：Boss / 残血 / 死亡 / 稀有掉落 / 升级 / 卡关 / 长时间没动 / 主人开口 —— 其余时间一律安静
+- **空闲退避**：键鼠静止 + 游戏里长时间没事件时，观察间隔自动翻倍，不白烧 token
+
+### 2. 游戏事件 → 立刻反应
+
+- 支持任意"一行一条 JSON"的事件文件，或挂一个采集器脚本把游戏日志转成事件
+- 重要事件（夺旗 / 失旗 / 增援 / 连杀…）**不等下一拍**，立刻单独说一句
+- 双重限流：**冷却 30 秒** + **每 10 分钟最多 8 次**（都可调，0 = 不限），超了只把事件留在上下文里
+
+### 3. 记忆（短期 → 长期）
+
+- 短期窗口（默认 12 条）+ 攒够 10 条自动压成长期要点（上限 2400 字）
+- 模型可以自己往长期记忆里 **留条子**（`remember` 字段）——重要约定不会随上下文窗口滑走
+- 压缩时强制保留它的口癖与身份设定；面板里也能手改长期记忆 / 加备注
+
+### 4. 多鱼隔离（不是多开同一个）
+
+每条鱼各自一份：**记忆 / 人设 / 提示词 / 端口 / QQ 账号 / 节奏抖动**，还能**单独暂停**某一条
+（`GET /fish`、`POST /fish {fish,paused}`）。两条鱼之间的发言、计数、错误互不串。
+
+### 5. 鱼板网络与记录网页
+
+- 多条鱼互相看得见：谁说了什么会进彼此的时间线，也会被带进下一轮上下文
+- 记录页 `<插件地址>/game-pet-watch/history`、群记录页 `/game-pet-watch/qq`（不依赖 DSH 前端）
+- 桌宠右键 →「记录网页」直接打开，**不用记端口**（DSH 每次重启端口都会变，插件靠登记簿自愈）
+- 跨来源去重（同一句话不再显示两遍）、系统条目可隐藏
+
+### 6. 跨进程碰撞
+
+- 两只鱼真的会撞开：判定用**真身盒**（`HIT_BOX`，不是整张画布）
+- 冲量走等质量弹性碰撞公式（动量守恒，单元测试跑 500 组随机速度）
+- 撞一下各冒一句台词；力度、冷却、判定宽容度都能调
+
+### 7. 桌面副本的界面
+
+| 交互 | 行为 |
+| --- | --- |
+| 鼠标扫过宠物 | 浮出输入框，回车即问（答案仍走气泡） |
+| 右键 | 「记录网页」子菜单 / 碎碎念 / 对话 / 改名字 / 游戏情况 / 机制库 / 重载配置 |
+| 状态胶囊 | 右上角 `观察中 · 52` / `已暂停` / `插件离线`，点它开观察面板 |
+| 观察面板 | 状态 / 记录 / 提示词三页签，可改可清 |
+
+### 8. 安装形态：单包即插即用
+
+插件与桌宠运行时打 **一个包**（`pet/` 就在里面），装一次就行：
 
 ```sh
 git clone https://github.com/SCP173JThePeanut/dsh-game-pet-watch
 cd dsh-game-pet-watch
-npm pack                                    # ~60MB：插件 + 桌宠运行时 + 106 段动画
-dsh plugin --profile desktop add ./dsh-game-pet-watch-<版本>.tgz
+npm pack                                  # ~60MB：插件 + 桌宠 + 106 段动画
+dsh plugin --profile desktop add ./dsh-game-pet-watch-1.4.0.tgz
 ```
 
-**只装这一个包就够**：桌宠本体（Electron 运行时、动画素材、右键菜单）就在包内的 `pet/`，
-插件找不到独立安装时会直接用它（`resolveGpwRoot` 的第一顺位）。
+装完重启 DSH → 桌宠自动拉起，用户数据在 `~/.dsh/dsh-pet-gpw`。
 
-开发时仍然可以分开：`pet/` 有自己独立的 `package.json` 与脚本，`resolveGpwRoot` 的
-第二顺位还认"插件旁边的 `dsh-pet-gpw` 兄弟仓库"。
+---
 
-## 安装
+## 常用配置
 
-DSH 的插件就是普通 npm 包 + 一个 patch 声明。装进某个 profile：
+设置页里能调（也可以写进 profile patch 或自管 `config.json`）：
 
-```sh
-dsh plugin --profile desktop add "G:\goh agent\dsh-game-pet-watch"   # 本地目录
-dsh plugin --profile desktop remove dsh-game-pet-watch               # 卸载
-```
+| 键 | 默认 | 作用 |
+| --- | --- | --- |
+| `intervalSec` | 60 | 多久看一次画面 |
+| `cooldownSec` | 25 | 两次自动开口的最短间隔 |
+| `gohImmediateCooldownSec` | 30 | 游戏事件的反应冷却 |
+| `gohReactionBudget` | 8 | 每 10 分钟最多因事件主动说几次（0 = 不限） |
+| `memoryRecentTurns` | 12 | 短期记忆带多少条 |
+| `compactEvery` | 10 | 攒够多少条压成长期记忆 |
+| `memoryLongTermChars` | 2400 | 长期记忆字数上限 |
+| `memoryAllowSelfNote` | 开 | 允许模型自己记长期记忆 |
+| `collidePushPx` | 3 | 撞开力度（0 = 只冒话不推） |
+| `historyHideSystem` | 开 | 记录页是否隐藏系统条目 |
+| `gpwRoot` | 空 | 桌宠目录；留空就用包内的 `pet/` |
 
-做到这一步，profile 里会多两样东西（这是 DSH 的规则，手工装也一样）：
+游戏事件文件、机制库路径由**你自己填**：插件不绑定任何一款游戏，也不预置内容。
 
-1. `package.json` 的 `dsh.profile.bundles` 里有 `dsh-game-pet-watch`；
-2. 该包的 `cordis.patch.yml`（`dsh.bundle.patch`）被当成"插入一行"的声明；
-   你自己的 `profiles/<名>/cordis.patch.yml` 里的 `game-pet-watch` 那行用来覆盖配置。
+---
 
-**版本入口**：`index-<版本>.js` 只是转发到 `index.js`（加载器按模块 URL 缓存，
-换文件名才会重新求值）。当前是 `index-1.0.0.js`；历史入口只增不改，方便回滚。
+## 已知限制
 
-## 使用
+- 需要**多模态**模型（能读截图），纯文本模型只能当聊天用
+- 截图 / 桌面窗口基于 Windows（Electron + PowerShell 截屏）
+- 游戏事件需要你自己提供事件文件或采集器；不填就只有"看画面"这一条路
+- 端口随 DSH 重启变化：插件靠 `~/.dsh/fish-board/registry.json` 自愈，别在配置里写死端口
 
-- **开箱即用**：装好重启 DSH 就会自己拉起桌面宠物（保活每 15 秒探一次，没起来就拉）。
-- **设置页**：DSH → 设置 → 桌宠（`game-pet-watch`）。常用项：
-  `intervalSec` 看画面间隔、`cooldownSec` 开口冷却、`maxChars` 单句字数、
-  `pluginPort` 插件端口（0 = 自动）、以及人设 / 开口规则 / 长期记忆压缩提示词。
-- **面板**：右键桌面宠物 → 观察面板；`/game-pet-watch/history` 是历史页，
-  `/game-pet-watch/boxes` 是碰撞盒监视页，`/game-pet-watch/qq` 是群聊记录。
-- **多只鱼**：设置页可增删鱼（id / 名字 / 端口 / 是否接 QQ），每条鱼独立的
-  记忆、图库描述、人设、`jitterSec`（观察间隔的随机波动）、压缩说明。
-- **碰撞**：两只鱼撞上时各冒一句台词；谁撞谁、弹开多少由宠物进程自己的物理决定，
-  插件只负责台词与跨进程转发。
+---
 
-## 端口与地址（会变的东西都别写死）
+## 致谢与许可
 
-宿主 DSH 的 web 端口是随机的（实测走过 19387 → 60010 → …）。所以：
-
-- 插件地址由 `ownOriginNow()` 解析：设置里的 `pluginPort` → `DSH_WEB_ORIGIN/PORT` → 请求里的 `req.socket.localPort`；
-- **不猜端口**：不扫描本机监听口、不往陌生端口发请求（这条踩过坑，把别的程序打坏过）；
-- 插件把"插件地址 + 鱼表"写到公共位置 `~/.dsh/fish-board/registry.json`
-  （`protocol: fish-board/3`，60 秒刷新；副本优先读它，失败即失效缓存）。
-
-## 开发 / 发布流程（源码是唯一事实源）
-
-现在的安装是**从发布包装的**（`node_modules/dsh-game-pet-watch` 是实体副本，不是链接到仓库），
-所以改仓库不会自动生效。固定流程：
-
-```
-改仓库 → npm run install-local → 重启 DSH
-```
-
-```powershell
-cd "G:\goh agent\dsh-game-pet-watch"
-npm test             # 单测（第一次安装 / 导出面 / 鱼表 / 配置 / 图库 / 表情包 / 多行）
-npm run preflight    # 必跑：会真跑一次 apply()，抓初始化期错误
-npm run install-local  # 打包两个仓库 → 装进 profile/node_modules 与 app-install → 更新 profile/patch
-npm run sandbox      # 可选：全新 HOME 里起一个真宠物，验证发布包能独立跑
-npm run backup -- --label 改啥之前   # 动代码前的仓库快照（落到 archive/backups/）
-```
-
-`install-local` 具体做：`npm pack` 插件与桌宠两个仓库 → 整份替换安装目录 →
-把 profile 依赖写成 `file:<dist 里的 tgz>`、bundles 补回本插件 →
-把 patch 那行的 `name` 指到当前入口、`gpwRoot` 指到装出来的桌宠目录。
-
-> ⚠️ **路径类设置必须写进 schema**（`gpwRoot` / `upstreamPetRoot` / `upstreamRoot` 已声明）：
-> 宿主只把 schema 认识的配置键传给插件，未声明的键即使写在 patch 里也会被**静默丢掉**。
-> 症状：patch 里明明有 `gpwRoot`，插件 `config.gpwRoot` 却是空 → 保活去找"插件旁边的兄弟仓库" →
-> 报"缺副本入口"。这条是 2026-10-18 真踩出来的。
-
-卸载 / 备份 / 还原：`scripts/uninstall-all.mjs`（默认 dry-run，`--yes` 才动）、
-`scripts/backup-all.mjs`、`scripts/restore-all.mjs`。
-
-## 依赖
-
-- 运行时不依赖别的 npm 包（`@deepseek-ai/schemastery` 是宿主给的，缺了就降级成无 schema）；
-- **动画素材自带**（2026-10-18 起）：`dsh-pet-gpw/assets/` 里有一份完整素材
-  （144 个文件 / 60.7 MB：106 个 webm + 字体 + 内置表情 + `config.jsonc`），
-  解析顺序是 配置 `upstreamPetRoot` → **副本仓库自带的 `assets/`** → profile 里的 `dsh-pet`。
-  也就是说 `dsh-pet` 包已经不是必需依赖了（保留它只当旧环境的兜底）。
-- 桌面宠物本体在另一个仓库 `dsh-pet-gpw`（`runtime/gpw-main.cjs` 是入口）。
-
-## 沙盒（模拟第一次安装）
-
-```powershell
-npm run sandbox          # 跑完自动清理
-npm run sandbox -- --keep   # 保留临时目录（看宠物日志）
-```
-
-它会：开一个全新 `DSH_HOME`（没有任何配置/记忆/鱼表）→ 加载插件并自己起 HTTP 服务 →
-**真的拉起一个 Electron 宠物**（临时用户目录、**不传 `GPW_UPSTREAM_ROOT`**，逼它用仓库自带素材）→
-断言：只有一只默认宠物、默认提示词、登记簿里正好那一只、宠物自报地址、`/rects` 收到坐标。
-
+MIT。原版 [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) © 2026 PC2005-cloud，
+本项目的修改与新增部分 © 2026 SCP173JThePeanut。原版权声明见 [LICENSE](./LICENSE)。
