@@ -12,8 +12,8 @@
     "./index-*.js": "./index-*.js"
   },
   "files": [
+    "index-1.4.0.js",
     "index.js",
-    "index-*.js",
     "client.js",
     "src",
     "web",
