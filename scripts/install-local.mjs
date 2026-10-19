@@ -76,20 +76,38 @@ const extractInto = (tgz, target) => {
   mkdirSync(tmp, { recursive: true });
   execSync(`tar -xzf "${tgz}" -C "${tmp}" --strip-components=1`, { stdio: 'inherit' });
 
-  let dest = target;
-  if (existsSync(dest)) {
-    try {
-      rmSync(dest, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
-    } catch {
-      dest = `${target}-${Date.now()}`;
-      console.log(`  ⚠ 目标目录正在被运行中的进程占用（EPERM）→ 改装到 ${dest}`);
-      console.log('    （旧进程继续用旧的；重启 DSH 后会自动切到新的这份）');
-    }
-  }
-  mkdirSync(dirname(dest), { recursive: true });
-  cpSync(tmp, dest, { recursive: true });
+  /**
+   * 先解到临时目录，再"合并覆盖"进目标（不先 rm 目标）。
+   *
+   * 为什么不"删了再拷"：运行中的 DSH 会占用包目录，rmSync 可能删掉一半才抛 EPERM，
+   * 目标就变成半残 —— 实测就这样把 package.json / index.js / client.js 删没了，
+   * 设置页显示「异常 / 包不可用」。合并覆盖最坏只是"没覆盖全"，校验能发现并重试。
+   */
+  mkdirSync(target, { recursive: true });
+  cpSync(tmp, target, { recursive: true, force: true });
   rmSync(tmp, { recursive: true, force: true });
-  return dest;
+  return target;
+};
+
+/** 装完必须有的文件（少一个宿主就加载不了） */
+const REQUIRED = ['package.json', 'index.js', 'client.js', 'cordis.patch.yml'];
+
+/** 校验 + 缺失时重试一次；仍然缺就抛错（宁可安装失败，也不要静默装出一个"包不可用"） */
+const verifyInstalled = (dir, entry, tgz) => {
+  const need = [...REQUIRED, entry].filter(Boolean);
+  const missing = () => need.filter((f) => !existsSync(join(dir, f)));
+  if (!missing().length) return;
+  console.log('  ⚠ 安装不完整（缺 ' + missing().join('、') + '），重试一次…');
+  try {
+    extractInto(tgz, dir);
+  } catch {
+    /* 重试失败就看下面的 still */
+  }
+  const still = missing();
+  if (still.length) {
+    throw new Error('安装后仍然缺文件：' + still.join('、') + '（多半是 DSH 正在占用该目录，关掉 DSH 再装）');
+  }
+  console.log('  ✅ 重试后完整');
 };
 
 /** 在 patch 里保证：row.name 指向入口、row.config.gpwRoot 指向装出来的桌宠 */
@@ -149,6 +167,7 @@ if (DRY) {
 const pluginTgz = pack(PLUGIN_ROOT);
 console.log('  插件包：' + pluginTgz);
 const pluginDir = extractInto(pluginTgz, INSTALL_PLUGIN);
+verifyInstalled(pluginDir, entry, pluginTgz);
 console.log(`  已安装插件 → ${pluginDir}（${readdirSync(pluginDir).length} 个条目）`);
 
 /** 桌宠实际装到了哪（被占用时会换成带时间戳的目录），后面 gpwRoot 要指它 */
