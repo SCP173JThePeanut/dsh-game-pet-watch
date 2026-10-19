@@ -15,18 +15,20 @@
 
 ---
 
-## 从 GitHub 装
+## 从 GitHub 装（单包，即插即用）
 
 ```sh
 git clone https://github.com/SCP173JThePeanut/dsh-game-pet-watch
 cd dsh-game-pet-watch
-npm pack                                    # 生成 dsh-game-pet-watch-<版本>.tgz
+npm pack                                    # ~60MB：插件 + 桌宠运行时 + 106 段动画
 dsh plugin --profile desktop add ./dsh-game-pet-watch-<版本>.tgz
 ```
 
-桌宠本体（运行时 + 动画素材）在姊妹仓库：**https://github.com/SCP173JThePeanut/dsh-pet-gpw**
+**只装这一个包就够**：桌宠本体（Electron 运行时、动画素材、右键菜单）就在包内的 `pet/`，
+插件找不到独立安装时会直接用它（`resolveGpwRoot` 的第一顺位）。
 
-两个包都要装：插件负责"看画面 + 说话"，桌宠负责"显示气泡 + 碰撞 + 右键菜单"。
+开发时仍然可以分开：`pet/` 有自己独立的 `package.json` 与脚本，`resolveGpwRoot` 的
+第二顺位还认"插件旁边的 `dsh-pet-gpw` 兄弟仓库"。
 
 ## 安装
 
