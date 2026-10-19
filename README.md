@@ -15,6 +15,19 @@
 
 ---
 
+## 从 GitHub 装
+
+```sh
+git clone https://github.com/SCP173JThePeanut/dsh-game-pet-watch
+cd dsh-game-pet-watch
+npm pack                                    # 生成 dsh-game-pet-watch-<版本>.tgz
+dsh plugin --profile desktop add ./dsh-game-pet-watch-<版本>.tgz
+```
+
+桌宠本体（运行时 + 动画素材）在姊妹仓库：**https://github.com/SCP173JThePeanut/dsh-pet-gpw**
+
+两个包都要装：插件负责"看画面 + 说话"，桌宠负责"显示气泡 + 碰撞 + 右键菜单"。
+
 ## 安装
 
 DSH 的插件就是普通 npm 包 + 一个 patch 声明。装进某个 profile：
