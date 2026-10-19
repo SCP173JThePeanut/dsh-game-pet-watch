@@ -161,12 +161,28 @@ DSH 左下角设置页里调整（也可以写 `config.json`）：
 
 ## 素材与授权
 
-软件代码与角色素材适用不同授权，请完整阅读：
+软件代码与角色素材适用**不同**授权，请完整阅读：
 
 - [LICENSE](./LICENSE) —— 本仓库插件代码（MIT，© 2026 SCP173JThePeanut）
-- [pet/LICENSE](./pet/LICENSE) —— `pet/`（原版 dsh-pet 的副本，MIT，© 2026 PC2005-cloud）
+- [pet/LICENSE](./pet/LICENSE) —— `pet/` 运行时代码（原版 dsh-pet 的副本，MIT，© 2026 PC2005-cloud）
+- [LICENSE-CHARACTER.md](./LICENSE-CHARACTER.md) —— **角色形象与动画素材（CC BY-NC-SA 4.0）**
 - [ASSET_LICENSE.md](./ASSET_LICENSE.md) —— 动画、梗图表情包、字体的逐项说明
 
-动画素材来自 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)；
-梗图图源为 [爱梗图](https://aigengtu.com/)，版权归各原作者，仓库内仅为演示用途。
+### 角色形象署名
+
+> 本作品基于 **ZipZipPipe** 创作的「女仆装鲸鱼娘」进行三次创作。
+> 该形象的角色原型（角色名：**溟月**）源自创作者 **上善无形**。
+>
+> 致谢与来源：
+> - 原型设定：上善无形 ・ [Bilibili](https://b23.tv/8h5L4xz) ・ [Pixiv](https://www.pixiv.net/users/62155430)
+> - 女仆二次设计：ZipZipPipe ・ [Bilibili](https://b23.tv/Pnw6nG8) ・ [Pixiv](https://www.pixiv.net/users/18604994)
+>
+> 本作品严格遵循上游创作者签署的开源授权链条，采用
+> **[CC BY-NC-SA 4.0 国际许可协议](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh)** 进行授权。
+> 你可以分享、改编；必须署名（并说明是否修改）、**不得用于商业用途**、并以同一协议分发改编作品。
+
+> ⚠️ 上游 dsh-pet 把动画素材一并写成 MIT，但角色形象的版权不由它单方面决定；
+> 本仓库按原始授权链补上了署名与协议，**NC 与 SA 条款有效**。商业使用请**分别**联系两位版权所有人。
+
+梗图图源为 [爱梗图](https://aigengtu.com/)，版权归各原作者，仓库内仅为演示用途；
 `pet/assets/fonts/上首软糖体.ttf` 归字体作者所有，**不要商用**。

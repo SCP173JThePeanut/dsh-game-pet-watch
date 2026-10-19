@@ -1,21 +1,25 @@
 # 素材与授权说明（Asset notice）
 
-本仓库的**代码**与**素材**适用不同授权，请分别阅读：
+本仓库的**代码**与**素材**适用**不同**授权，请分别阅读：
 
 | 范围 | 授权 | 说明 |
 | --- | --- | --- |
 | 本仓库的插件代码（`index.js` / `src/` / `web/` / `client.js` / `scripts/`） | **MIT**，见 [LICENSE](./LICENSE) | © 2026 SCP173JThePeanut |
-| `pet/` —— 原版 dsh-pet 的运行时副本 | **MIT**，见 [pet/LICENSE](./pet/LICENSE) | © 2026 PC2005-cloud，来自 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) |
-| `pet/assets/webm/` —— 106 段透明动画 | 随上游 **MIT** | 由 dsh-pet 的 AI 生成素材链产出，本仓库未改动编码 |
+| `pet/` 的运行时**代码**（原版 dsh-pet 的副本） | **MIT**，见 [pet/LICENSE](./pet/LICENSE) | © 2026 PC2005-cloud，来自 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) |
+| **角色形象**与 `pet/assets/webm/` 的 106 段动画 | **CC BY-NC-SA 4.0**，见 [LICENSE-CHARACTER.md](./LICENSE-CHARACTER.md) | 基于 ZipZipPipe「女仆装鲸鱼娘」；原型「溟月」© 上善无形 |
 | `pet/assets/fonts/上首软糖体.ttf` | **归字体作者所有** | 仅供本地演示，**不要商用或再分发**；如需发行请换成可商用字体或删除 |
 | `pet/assets/memes/` —— 梗图表情包 | **归各原作者所有** | 图源为网络表情包站（如 [爱梗图](https://aigengtu.com/)），仅作演示；再分发前请自行确认授权或替换 |
 | `pet/assets/pic/` —— 光标 / 通知小图 | 本仓库自制 | 随代码 MIT |
+
+> ⚠️ **上游 dsh-pet 把动画素材也写成 MIT，但那不是它能单方面决定的**：角色形象本身由
+> ZipZipPipe（二次设计）与上善无形（原型「溟月」）以 CC BY-NC-SA 4.0 发布。
+> 本仓库按原始授权链补上了署名与协议，**NC（非商业）与 SA（相同方式共享）条款依然有效**。
 
 ## 上游项目
 
 `pet/` 是 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) 的副本，
 用于让插件**自带桌宠运行时**（免去单独安装第二个包）。它的动画素材由上游的
-「提示词 → 源视频 → 透明动画」链路生成，上游以 MIT 分发，版权声明保留在 [pet/LICENSE](./pet/LICENSE)。
+「提示词 → 源视频 → 透明动画」链路生成，代码部分以 MIT 分发。
 
 本仓库对 `pet/` 的改动只有两类，都能在提交历史里逐条看到：
 

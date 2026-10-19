@@ -29,7 +29,8 @@
     "pet",
     "LICENSE",
     "README.md",
-    "ASSET_LICENSE.md"
+    "ASSET_LICENSE.md",
+    "LICENSE-CHARACTER.md"
   ],
   "scripts": {
     "test": "node tests/first-install.test.mjs && node tests/exports.test.mjs && node tests/fish.test.mjs && node tests/config-store.test.mjs && node tests/images.test.mjs && node tests/memes.test.mjs && node tests/multiline.test.mjs && node tests/collide.test.mjs",
@@ -48,5 +49,5 @@
       "immediately": true
     }
   },
-  "license": "MIT"
+  "license": "(MIT AND CC-BY-NC-SA-4.0)"
 }
