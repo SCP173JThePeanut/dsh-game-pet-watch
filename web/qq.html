@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>群记录 · 它看到的 QQ 消息</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px 18px 50px; background: #16171a; color: #e6e7ea;
+         font: 14px/1.65 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; }
+  h1 { font-size: 17px; margin: 0 0 4px; }
+  .dim { color: #9aa0a6; font-size: 12px; }
+  .wrap { display: grid; grid-template-columns: 232px 1fr; gap: 16px; margin-top: 14px; align-items: start; }
+  @media (max-width: 760px) { .wrap { grid-template-columns: 1fr; } }
+  .side { background: #1b1d21; border: 1px solid #26292e; border-radius: 10px; padding: 8px; }
+  .conv { display: block; width: 100%; text-align: left; background: transparent; border: 0; color: #cfd2d6;
+          border-radius: 8px; padding: 7px 9px; cursor: pointer; font-size: 13px; }
+  .conv:hover { background: #22252a; }
+  .conv.on { background: #2a2e35; color: #fff; }
+  .conv .n { color: #8b9096; font-size: 11px; }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  input[type=search] { background: #1e2024; color: #e6e7ea; border: 1px solid #2c2f34;
+        border-radius: 8px; padding: 6px 10px; min-width: 200px; outline: none; }
+  button { background: #24262b; color: #e6e7ea; border: 1px solid #2c2f34; border-radius: 8px;
+        padding: 6px 12px; cursor: pointer; }
+  button:hover { background: #2b2e34; }
+  button.on { background: #33405a; border-color: #47597c; }
+  .row { display: grid; grid-template-columns: 66px 190px 1fr; gap: 10px; padding: 6px 0;
+         border-bottom: 1px solid #1e2024; align-items: start; }
+  .row .t { color: #8b9096; font-size: 12px; font-variant-numeric: tabular-nums; padding-top: 2px; }
+  .row .who { color: #b9a0ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row.pet .who { color: #6fd1a8; }
+  .row.owner .who { color: #ffb86b; }
+  .row .txt { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .row img { max-width: 260px; max-height: 220px; border-radius: 8px; display: block; margin-top: 6px; }
+  .pill { display: inline-block; padding: 1px 7px; border-radius: 999px; background: #24262b;
+          color: #9aa0a6; font-size: 11px; margin-left: 6px; }
+  .day { margin: 16px 0 6px; color: #9aa0a6; font-size: 12px; border-bottom: 1px solid #26292e; padding-bottom: 4px; }
+  .stat { display: inline-block; background: #1b1d21; border: 1px solid #26292e; border-radius: 10px;
+          padding: 5px 10px; margin-right: 8px; }
+  .stat b { font-size: 15px; }
+  a { color: #7fb3ff; }
+</style>
+</head>
+<body>
+<h1>群记录 <span class="dim">它到底看到了哪些 QQ 消息</span></h1>
+<div class="dim" id="sub">每次刷新都重新读文件（新消息直接出现 ✓）。署名带 QQ 号；它自己说的标绿 ✓。</div>
+<div id="stats" style="margin-top:10px"></div>
+
+<div class="wrap">
+  <div class="side" id="convs"><div class="dim">读取中…</div></div>
+  <div>
+    <div class="bar">
+      <input type="search" id="q" placeholder="过滤：昵称 / 内容（空格分隔多个词）" />
+      <button id="onlyPet">只看它说的</button>
+      <button id="onlyImg">只看带图的</button>
+      <button id="reset">重置</button>
+      <span class="dim" id="hint"></span>
+    </div>
+    <div id="list"><div class="dim">读取中…</div></div>
+    <div id="more" class="dim" style="margin-top:12px"></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let DATA = null;
+let IMG_BASE = '';
+let picked = '';          // 选中的会话 key（空 = 全部）
+let LIMIT = 500;
+let owner = '';
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function hhmmss(at) {
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (x) => String(x).padStart(2, '0');
+  return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
+function dayKey(at) {
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (x) => String(x).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+function imgSrc(name) {
+  if (!name || !IMG_BASE) return '';
+  return IMG_BASE + '/dsh-pet-7340/pic/memes/' + encodeURIComponent(name) + '.png';
+}
+function isPet(e) {
+  const who = String(e.who || '');
+  return /鱼板|本鱼/.test(who) || e.kind === 'reply' && /pet/i.test(String(e.source || ''));
+}
+
+async function boot() {
+  // 配图源：问插件"接 QQ 的那条鱼"在哪个端口 ✓
+  try {
+    const pets = await (await fetch('/game-pet-watch/pets', { cache: 'no-store' })).json();
+    const qq = (pets.pets || []).find((f) => f.qq) || (pets.pets || [])[0];
+    if (qq && qq.origin) IMG_BASE = qq.origin;
+  } catch { /* 拿不到就不显示缩略图 ✓ */ }
+
+  try {
+    DATA = await (await fetch('/game-pet-watch/qq.json', { cache: 'no-store' })).json();
+  } catch (err) {
+    $('list').innerHTML = '<div class="dim">读不到群记录：' + esc(err && err.message) + '</div>';
+    return;
+  }
+  owner = DATA.owner || '';
+  const convs = DATA.conversations || [];
+  $('sub').textContent = '共 ' + (DATA.total || 0) + ' 条 QQ 消息，分在 ' + convs.length + ' 个会话里' +
+    (owner ? '（主人 QQ ' + owner + ' ✓）' : '') + '；每次刷新都重读文件 ✓';
+
+  $('convs').innerHTML = '<button class="conv on" data-key="">全部会话 <span class="n">' +
+      (DATA.total || 0) + '</span></button>' +
+    convs.map((c) =>
+      '<button class="conv" data-key="' + esc(c.key) + '">' + esc(c.label) +
+      ' <span class="n">' + (c.count || 0) + '</span></button>').join('');
+  for (const b of $('convs').querySelectorAll('.conv')) {
+    b.onclick = () => {
+      picked = b.dataset.key || '';
+      for (const x of $('convs').querySelectorAll('.conv')) x.classList.toggle('on', x === b);
+      LIMIT = 500;
+      render();
+    };
+  }
+  render();
+}
+
+function currentEntries() {
+  const convs = DATA.conversations || [];
+  const list = picked ? (convs.find((c) => c.key === picked)?.entries || []) : convs.flatMap((c) => c.entries || []);
+  return list.slice().sort((a, b) => (b.at || 0) - (a.at || 0));
+}
+
+function render() {
+  const q = $('q').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const onlyPet = $('onlyPet').dataset.on === '1';
+  const onlyImg = $('onlyImg').dataset.on === '1';
+  let rows = currentEntries().filter((e) => {
+    if (onlyPet && !isPet(e)) return false;
+    if (onlyImg && !e.image) return false;
+    if (!q.length) return true;
+    const hay = ((e.who || '') + ' ' + (e.text || '')).toLowerCase();
+    return q.every((w) => hay.includes(w));
+  });
+
+  // 说话人统计（按当前会话）
+  const byWho = new Map();
+  for (const e of currentEntries()) byWho.set(e.who || '?', (byWho.get(e.who || '?') || 0) + 1);
+  $('stats').innerHTML = '<span class="stat">命中 <b>' + rows.length + '</b> 条</span>' +
+    [...byWho.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6)
+      .map(([w, n]) => '<span class="stat">' + esc(w) + ' <b>' + n + '</b></span>').join('');
+
+  const shown = rows.slice(0, LIMIT);
+  let html = '';
+  let lastDay = '';
+  for (const e of shown) {
+    const dk = dayKey(e.at);
+    if (dk && dk !== lastDay) { html += '<div class="day">' + dk + '</div>'; lastDay = dk; }
+    const cls = isPet(e) ? 'row pet' : (owner && String(e.who || '').includes(owner) ? 'row owner' : 'row');
+    const img = imgSrc(e.image);
+    html += '<div class="' + cls + '">' +
+      '<div class="t">' + hhmmss(e.at) + '</div>' +
+      '<div class="who" title="' + esc(e.who) + '">' + esc(e.who || '?') +
+        (e.source ? '<span class="pill">' + esc(e.source) + '</span>' : '') + '</div>' +
+      '<div class="txt">' + esc(e.text || '') +
+        (img ? '<img src="' + img + '" loading="lazy" alt="" onerror="this.style.display=\'none\'" />'
+             : (e.image ? '<div class="dim">［图：' + esc(e.image) + '］</div>' : '')) +
+      '</div></div>';
+  }
+  $('list').innerHTML = html || '<div class="dim">（没有匹配的消息）</div>';
+  $('more').textContent = rows.length > shown.length ? '还有 ' + (rows.length - shown.length) + ' 条没显示 ' : '';
+  if (rows.length > shown.length) {
+    const b = document.createElement('button');
+    b.textContent = '再多显示 500 条';
+    b.onclick = () => { LIMIT += 500; render(); };
+    $('more').appendChild(b);
+  }
+  $('hint').textContent = q.length || onlyPet || onlyImg ? '（已过滤）' : '';
+}
+
+$('q').addEventListener('input', () => { LIMIT = 500; render(); });
+$('onlyPet').addEventListener('click', () => {
+  const el = $('onlyPet');
+  el.dataset.on = el.dataset.on === '1' ? '0' : '1';
+  el.classList.toggle('on', el.dataset.on === '1');
+  render();
+});
+$('onlyImg').addEventListener('click', () => {
+  const el = $('onlyImg');
+  el.dataset.on = el.dataset.on === '1' ? '0' : '1';
+  el.classList.toggle('on', el.dataset.on === '1');
+  render();
+});
+$('reset').addEventListener('click', () => {
+  $('q').value = '';
+  for (const id of ['onlyPet', 'onlyImg']) { $(id).dataset.on = '0'; $(id).classList.remove('on'); }
+  LIMIT = 500;
+  render();
+});
+boot();
+</script>
+</body>
+</html>

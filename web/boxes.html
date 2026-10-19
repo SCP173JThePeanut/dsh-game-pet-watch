@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>碰撞盒监视器</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 12px 14px; background: #14161a; color: #e6e7ea;
+         font: 13px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; }
+  h1 { font-size: 16px; margin: 0 0 6px; }
+  .dim { color: #9aa0a6; font-size: 12px; }
+  .bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 8px 0 10px; }
+  .chip { background: #1b1d21; border: 1px solid #26292e; border-radius: 8px; padding: 3px 9px; }
+  input[type=range] { width: 160px; accent-color: #4c8dff; }
+  #wrap { position: relative; border: 1px solid #2c2f34; border-radius: 10px; overflow: hidden; }
+  canvas { display: block; width: 100%; height: auto; background: #0f1114; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; }
+</style>
+</head>
+<body>
+<h1>碰撞盒监视器 <span class="dim">（插件收到的那份坐标，就是判定用的那份）</span></h1>
+<div class="dim" id="sub">每 200ms 刷新。方块 = 每只鱼上报的包围盒；红色高亮 = 正在判定为"重叠"。</div>
+
+<div class="bar">
+  <span class="chip">屏幕：
+    <input id="sw" type="number" value="2560" style="width:70px;background:#1e2024;color:#e6e7ea;border:1px solid #2c2f34;border-radius:6px;padding:2px 6px" />
+    ×
+    <input id="sh" type="number" value="1600" style="width:70px;background:#1e2024;color:#e6e7ea;border:1px solid #2c2f34;border-radius:6px;padding:2px 6px" />
+    <span class="dim">(浏览器报的 screen 会被 DPI 缩放，别信它)</span>
+  </span>
+  <span class="chip">缩放：<b id="scaleTxt">—</b></span>
+  <label class="dim">缩放 <input id="scale" type="range" min="10" max="100" value="28" /></label>
+  <span class="chip">重叠：<b id="hit">—</b></span>
+  <span class="chip">上次刷新：<b id="at">—</b></span>
+</div>
+
+<div id="wrap"><canvas id="cv"></canvas></div>
+
+<div class="legend" id="legend"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const COLORS = ['#4c8dff', '#6fd1a8', '#ffb86b', '#b9a0ff', '#ff7b8a', '#5ad1ff'];
+let rects = {};
+let scale = 0.28;
+
+function draw() {
+  const cv = $('cv');
+  const dpr = window.devicePixelRatio || 1;
+  /**
+   * ⚠️ 不要用 `window.screen` ✗ —— 这台机器 2560×1600 但系统缩放会让浏览器报 1280×800 之类 ✓
+   * 所以用页面上的**手填值**（默认 2560×1600 ✓ 你的真实分辨率 ✓），偏差一目了然 ✓。
+   */
+  const sw = Math.max(100, Number($('sw').value) || 2560);
+  const sh = Math.max(100, Number($('sh').value) || 1600);
+  const w = Math.max(320, Math.round(sw * scale));
+  const h = Math.max(200, Math.round(sh * scale));
+  cv.style.width = w + 'px';
+  cv.width = Math.round(w * dpr);
+  cv.height = Math.round(h * dpr);
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#0f1114';
+  ctx.fillRect(0, 0, w, h);
+  // 网格（每 200 屏幕像素一条）
+  ctx.strokeStyle = '#1c2026';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= sw; x += 200) {
+    const px = Math.round(x * scale) + 0.5;
+    ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, h); ctx.stroke();
+  }
+  for (let y = 0; y <= sh; y += 200) {
+    const py = Math.round(y * scale) + 0.5;
+    ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(w, py); ctx.stroke();
+  }
+
+  const ids = Object.keys(rects);
+  const overlapping = new Set();
+  const pad = 2;
+  for (let i = 0; i < ids.length; i += 1) {
+    for (let j = i + 1; j < ids.length; j += 1) {
+      const a = rects[ids[i]], b = rects[ids[j]];
+      if (!a || !b) continue;
+      if (a.x + pad < b.x + b.w && b.x + pad < a.x + a.w && a.y + pad < b.y + b.h && b.y + pad < a.y + a.h) {
+        overlapping.add(ids[i]); overlapping.add(ids[j]);
+      }
+    }
+  }
+
+  let legend = '';
+  ids.forEach((id, i) => {
+    const r = rects[id];
+    const color = COLORS[i % COLORS.length];
+    const x = r.x * scale, y = r.y * scale, ww = r.w * scale, hh = r.h * scale;
+    const hit = overlapping.has(id);
+    ctx.fillStyle = color + (hit ? '55' : '22');
+    ctx.strokeStyle = hit ? '#ff5a5a' : color;
+    ctx.lineWidth = hit ? 2.5 : 1.5;
+    ctx.fillRect(x, y, ww, hh);
+    ctx.strokeRect(x + 0.5, y + 0.5, ww, hh);
+    // 质心十字：碰撞方向就是按这个点连线算的 ✓
+    const cx = x + ww / 2;
+    const cy = y + hh / 2;
+    ctx.strokeStyle = hit ? '#ff5a5a' : color;
+    ctx.beginPath();
+    ctx.moveTo(cx - 6, cy); ctx.lineTo(cx + 6, cy);
+    ctx.moveTo(cx, cy - 6); ctx.lineTo(cx, cy + 6);
+    ctx.stroke();
+    ctx.fillStyle = hit ? '#ff8a8a' : color;
+    ctx.font = '11px ui-monospace, Consolas, monospace';
+    ctx.fillText((hit ? '● ' : '') + id, x + 3, y - 4 < 10 ? y + 12 : y - 4);
+    legend += '<span><i style="background:' + color + '"></i>' + id +
+      ' <span class="dim">' + Math.round(r.x) + ',' + Math.round(r.y) + ' ' + r.w + '×' + r.h +
+      (r.alive === false ? ' · 掉线' : '') + (r.vx || r.vy ? ' · v=' + (r.vx || 0).toFixed?.(1) + ',' + (r.vy || 0).toFixed?.(1) : '') +
+      '</span></span>';
+  });
+  $('legend').innerHTML = legend || '<span class="dim">（还没有坐标 —— 副本没上报？）</span>';
+  $('hit').textContent = overlapping.size ? [...overlapping].join(' ↔ ') : '无';
+  $('hit').style.color = overlapping.size ? '#ff8a8a' : '';
+  $('scr').textContent = sw + '×' + sh;
+  $('scaleTxt').textContent = Math.round(scale * 100) + '%';
+  $('at').textContent = new Date().toLocaleTimeString();
+}
+
+async function tick() {
+  try {
+    const d = await (await fetch('/game-pet-watch/rects', { cache: 'no-store' })).json();
+    rects = (d && d.rects) || {};
+  } catch {
+    /* 插件没响应就先保留上一帧 */
+  }
+  draw();
+}
+
+$('scale').addEventListener('input', (e) => { scale = Number(e.target.value) / 100; draw(); });
+for (const id of ['sw', 'sh']) $(id).addEventListener('input', () => draw());
+setInterval(tick, 200);
+tick();
+</script>
+</body>
+</html>

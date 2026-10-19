@@ -1,0 +1,10 @@
+# 打包件（发布包在上一级 dist 里）
+*.tgz
+
+# 临时日志 / 备份
+*.log
+*.bak
+*.bak-*
+node_modules/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,43 @@
+# dsh-game-pet-watch 的挂载声明：一个宿主行（截屏 + 模型裁决 + 投喂桌宠）
+#
+# ⚠️ **这里的 config 不只是"默认值"，它还是宿主转发配置的白名单**（2026-10-18 实测）：
+#    只有在本文件里出现过的键，宿主才会把 profile `cordis.patch.yml` 里对应的值传进插件。
+#    没在这里声明的键（哪怕写进了 schema、写进了 patch）会**静默丢掉** ——
+#    症状：patch 里明明写着 `gpwRoot`，插件 `config.gpwRoot` 却是空串。
+#    所以新增"希望能在 patch 里配"的键时，**这里和 index.js 的 schema 都要加一行**。
+#
+# 常用项：
+#   windowTitle   要盯的窗口标题关键字（忽略大小写，取面积最大的匹配窗口）；留空 = 主屏
+#   intervalSec   每隔多少秒看一帧
+#   maxWidth      截图缩放后的最大宽度（省 token）
+#   provider/model 裁决用的模型；都留空 = 跟随会话默认模型
+#   personality/rules 人设与「什么时候才开口」的规则
+#   cooldownSec   两次开口之间的最短间隔
+#   pushToPet     true = 把台词投给桌宠的气泡
+#   petId         指定桌宠 id；留空 = 当前选中的那只
+#   pluginPort    插件自己的 web 端口（0 = 自动探测）
+#   gpwRoot       桌宠副本目录（留空 = 插件旁边的 dsh-pet-gpw）
+#   upstreamPetRoot 动画素材目录（留空 = 副本自带 assets → dsh-pet）
+#   memoryRecentTurns / compactEvery / memoryLongTermChars  记忆三件套
+- insert:
+    - id: game-pet-watch
+      name: 'dsh-game-pet-watch'
+      config:
+        enabled: true
+        windowTitle: ''
+        intervalSec: 20
+        maxWidth: 1280
+        provider: ''
+        model: ''
+        cooldownSec: 25
+        maxChars: 60
+        keepShots: 5
+        pushToPet: true
+        petId: ''
+        pluginPort: 0
+        gpwRoot: ''
+        upstreamPetRoot: ''
+        upstreamRoot: ''
+        memoryRecentTurns: 12
+        compactEvery: 10
+        memoryLongTermChars: 2400

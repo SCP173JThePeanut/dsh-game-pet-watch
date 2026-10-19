@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>宠物历史 · 本次会话语料</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 18px 20px 60px; background: #16171a; color: #e6e7ea;
+         font: 14px/1.65 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; }
+  h1 { font-size: 17px; margin: 0 0 4px; }
+  .dim { color: #9aa0a6; font-size: 12px; }
+  .bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 12px 0 16px; }
+  input[type=search] { background: #1e2024; color: #e6e7ea; border: 1px solid #2c2f34;
+        border-radius: 8px; padding: 6px 10px; min-width: 200px; outline: none; }
+  button { background: #24262b; color: #e6e7ea; border: 1px solid #2c2f34; border-radius: 8px;
+        padding: 6px 12px; cursor: pointer; }
+  button:hover { background: #2b2e34; }
+  .stats { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+  .stat { background: #1b1d21; border: 1px solid #26292e; border-radius: 10px; padding: 8px 12px; }
+  .stat b { font-size: 16px; }
+  .day { margin: 20px 0 8px; color: #9aa0a6; font-size: 12px;
+         border-bottom: 1px solid #26292e; padding-bottom: 4px; }
+  .row { display: grid; grid-template-columns: 66px 150px 1fr; gap: 10px;
+         padding: 6px 0; border-bottom: 1px solid #1e2024; align-items: start; }
+  .row .t { color: #8b9096; font-variant-numeric: tabular-nums; font-size: 12px; padding-top: 2px; }
+  .row .who { color: #b9a0ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row.pet .who { color: #6fd1a8; }
+  .row.me .who { color: #7fb3ff; }
+  .row .txt { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .row img { max-width: 240px; max-height: 200px; border-radius: 8px; display: block; margin-top: 6px; }
+  .pill { display: inline-block; padding: 1px 7px; border-radius: 999px; background: #24262b;
+          color: #9aa0a6; font-size: 11px; margin-left: 6px; }
+  #more { margin-top: 14px; }
+  a { color: #7fb3ff; }
+</style>
+</head>
+<body>
+<h1>宠物历史 <span class="dim" id="mode">（在线）</span></h1>
+<div class="dim" id="sub">读的是插件当前的记录；导出件则是自包含快照（图片已内联，离线可看）。</div>
+
+<div class="stats" id="stats"></div>
+
+<div class="bar">
+  <input type="search" id="q" placeholder="过滤：说话人 / 内容（支持多个词，空格分隔）" />
+  <button id="onlyPet">只看它说的</button>
+  <button id="reset">重置</button>
+  <span class="dim" id="hint"></span>
+</div>
+
+<div id="list"></div>
+<div id="more" class="dim"></div>
+
+<script>
+/* 导出件：插件会把 window.__HISTORY__ 注入在**这个 script 之前** ✓ */
+const INJECTED = (typeof window !== 'undefined' && window.__HISTORY__) || null;
+
+const $ = (id) => document.getElementById(id);
+
+/** 页面自己的参数：?port=7341 → 只看那条鱼 ✓；?fish=legacy 同义 ✓ */
+const PAGE_PORT = new URLSearchParams(location.search).get('port') || '';
+const PAGE_FISH = new URLSearchParams(location.search).get('fish') || '';
+/** 鱼名集合（来自 /pets ✓ 用于"只看它说的" ✓） */
+let PET_NAMES = [];
+let IMAGES = {};        // 名字 → data URI（导出件 ✓）
+let IMG_BASE = '';      // 在线时的配图源（副本 origin ✓）
+let ENTRIES = [];
+let LIMIT = 200;
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function hhmmss(at) {
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (x) => String(x).padStart(2, '0');
+  return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
+function dayKey(at) {
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (x) => String(x).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+function imgSrc(name) {
+  if (!name) return '';
+  if (IMAGES && IMAGES[name]) return IMAGES[name];
+  if (!IMG_BASE) return '';
+  return IMG_BASE + '/dsh-pet-7340/pic/memes/' + encodeURIComponent(name) + '.png';
+}
+
+/** 在线模式：先问 /pets 找出"接 QQ 那条鱼"的 origin（配图从它那儿取 ✓），再拉历史 */
+async function loadLive() {
+  $('mode').textContent = '（在线）';
+  try {
+    const pets = await (await fetch('/game-pet-watch/pets', { cache: 'no-store' })).json();
+    PET_NAMES = (pets.pets || []).map((f) => String(f.name || '')).filter(Boolean);
+    const want = PAGE_PORT
+      ? (pets.pets || []).find((f) => Number(String(f.origin).split(':').pop()) === Number(PAGE_PORT))
+      : PAGE_FISH
+        ? (pets.pets || []).find((f) => f.id === PAGE_FISH)
+        : null;
+    const qq = want || (pets.pets || []).find((f) => f.qq) || (pets.pets || [])[0];
+    if (qq && qq.origin) IMG_BASE = qq.origin;
+    if (want) $('sub').insertAdjacentText('beforeend', '（已限定：' + (want.name || want.id) + ' ✓）');
+  } catch { /* 配图源拿不到就先不显示图 ✓ */ }
+  const q = [];
+  if (PAGE_PORT) q.push('port=' + encodeURIComponent(PAGE_PORT));
+  if (PAGE_FISH) q.push('fish=' + encodeURIComponent(PAGE_FISH));
+  q.push('limit=4000');
+  const data = await (await fetch('/game-pet-watch/history.json?' + q.join('&'), { cache: 'no-store' })).json();
+  ENTRIES = (data.entries || data.history || []).slice().sort((a, b) => (b.at || 0) - (a.at || 0));
+  $('sub').textContent = '在线模式：每次刷新都重新读文件，改样式不用重启 ✓';
+  render();
+}
+
+function stats() {
+  const byWho = new Map();
+  for (const e of ENTRIES) byWho.set(e.who || '?', (byWho.get(e.who || '?') || 0) + 1);
+  const top = [...byWho.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  return { total: ENTRIES.length, top };
+}
+
+function render() {
+  try {
+    renderUnsafe();
+  } catch (error) {
+    // 页面出错就把原因**显示出来**（别再"一片空白"让人猜 ✗）
+    $('more').textContent = '页面出错了：' + (error && error.message ? error.message : String(error));
+    console.error(error);
+  }
+}
+
+function renderUnsafe() {
+  const q = $('q').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const onlyPet = $('onlyPet').dataset.on === '1';
+  const s = stats();
+  $('stats').innerHTML =
+    '<div class="stat">共 <b>' + s.total + '</b> 条</div>' +
+    s.top.map(([who, n]) => '<div class="stat">' + esc(who) + ' <b>' + n + '</b></div>').join('');
+
+  let rows = ENTRIES.filter((e) => {
+    if (onlyPet) {
+      /**
+       * 判定"是不是它说的"：
+       *   · 导出件里有 role ✓ 直接用 ✓
+       *   · 在线件没有 role ✗ → 按**鱼名**匹配 ✓（/pets 里那两条的名字 ✓）
+       * 老写法只看 e.role ✗ → 在线时永远空列表 ✓ 看着像"崩了" ✓。
+       */
+      const who = String(e.who || '');
+      const isPet = e.role === 'pet' || PET_NAMES.some((n) => n && who.includes(n));
+      if (!isPet) return false;
+    }
+    if (!q.length) return true;
+    const hay = ((e.who || '') + ' ' + (e.text || '')).toLowerCase();
+    return q.every((w) => hay.includes(w));
+  });
+
+  const shown = rows.slice(0, LIMIT);
+  let html = '';
+  let lastDay = '';
+  for (const e of shown) {
+    const dk = dayKey(e.at);
+    if (dk && dk !== lastDay) { html += '<div class="day">' + dk + '</div>'; lastDay = dk; }
+    const cls = e.role === 'pet' ? 'row pet' : e.role === 'me' ? 'row me' : 'row';
+    const img = imgSrc(e.image);
+    html += '<div class="' + cls + '">' +
+      '<div class="t">' + hhmmss(e.at) + '</div>' +
+      '<div class="who" title="' + esc(e.who) + '">' + esc(e.who || '?') +
+        (e.source ? '<span class="pill">' + esc(e.source) + '</span>' : '') + '</div>' +
+      '<div class="txt">' + esc(e.text || '') +
+        (img ? '<img src="' + img + '" loading="lazy" alt="" />' : (e.image ? '<div class="dim">［图：' + esc(e.image) + '］</div>' : '')) +
+      '</div></div>';
+  }
+  $('list').innerHTML = html || '<div class="dim">（没有匹配的记录）</div>';
+  $('more').innerHTML = ''; // ← 每次先清空 ✓（原来只 append ✗ → 按钮会越堆越多 ✓）
+  $('more').textContent = rows.length > shown.length
+    ? '还有 ' + (rows.length - shown.length) + ' 条没显示 —— '
+    : '';
+  if (rows.length > shown.length) {
+    const b = document.createElement('button');
+    b.textContent = '再多显示 400 条';
+    b.onclick = () => { LIMIT += 400; render(); };
+    $('more').appendChild(b);
+  }
+  $('hint').textContent = q.length ? '命中 ' + rows.length + ' 条' : '';
+}
+
+function boot() {
+  $('q').addEventListener('input', () => { LIMIT = 400; render(); });
+  $('onlyPet').addEventListener('click', () => {
+    const el = $('onlyPet');
+    el.dataset.on = el.dataset.on === '1' ? '0' : '1';
+    el.textContent = el.dataset.on === '1' ? '看全部' : '只看它说的';
+    render();
+  });
+  $('reset').addEventListener('click', () => {
+    $('q').value = ''; $('onlyPet').dataset.on = '0';
+    $('onlyPet').textContent = '只看它说的'; LIMIT = 400; render();
+  });
+
+  if (INJECTED) {
+    $('mode').textContent = '（导出快照 · 离线可看）';
+    IMAGES = INJECTED.images || {};
+    IMG_BASE = INJECTED.self || '';
+    ENTRIES = (INJECTED.entries || []).slice().sort((a, b) => (b.at || 0) - (a.at || 0));
+    $('sub').textContent = '这是导出的自包含快照：' + (INJECTED.count || ENTRIES.length) + ' 条' +
+      (INJECTED.exportedAt ? '，导出于 ' + new Date(INJECTED.exportedAt).toLocaleString() : '') +
+      (INJECTED.selfName ? '，来自「' + INJECTED.selfName + '」' : '') + ' ✓';
+    render();
+    return;
+  }
+  loadLive().catch((err) => {
+    $('list').innerHTML = '<div class="dim">读不到历史：' + esc(err && err.message) + '</div>';
+  });
+}
+boot();
+</script>
+</body>
+</html>
