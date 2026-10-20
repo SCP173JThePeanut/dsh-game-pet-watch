@@ -177,6 +177,7 @@ import {
   readPackageMemes,
   readScrapedDescriptions,
   imagePromptBlock,
+  memeSaveExt,
 } from './src/images.js';
 
 const ROUTE_PREFIX = '/game-pet-watch';
@@ -4064,20 +4065,22 @@ function applyInner(ctx, rawConfig, log) {
             const cute = String(parsed?.name ?? '').replace(/[\/:*?"<>|\s]+/g, '').slice(0, 12);
             const base = cute ? `qq-${cute}` : `qq-${Date.now()}`;
             /**
-             * **入库统一成 PNG**（主人报图片没都读进来✗→✓）：
-             * 图库扫描器与副本的图片路由**只认 png/webp** ✗，而 QQ 来的图可能是 jpg/gif ✗
-             * → 那种图存进去也永远不会被扫到 ✓（实测 10 张 QQ 图里有 8 张是这种情况 ✗）。
-             * 这里用同一套 PowerShell（System.Drawing）无损转 PNG ✓；转不了就用原扩展名 ✓。
+             * **原样存原扩展名**（2026-10-20 改）。
+             *
+             * 以前一律转 PNG：因为图库扫描器与服务端只认 png/webp。代价是 **gif 只剩第一帧**——
+             * 主人实测"群里那张 gif 收进来就不动了"。现在扫描器收 png/webp/gif/jpg，
+             * 服务端也按真实扩展名给 content-type，所以**不用转**了：
+             * 转一次就丢动画，还多一次 PowerShell 调用。
+             * 只有真正不支持存的格式（bmp 等）才转 PNG。
              */
-            let saveExt = ext;
-            if (!['png', 'webp'].includes(ext)) {
+            /** 统一清单在 src/images.js（`memeSaveExt`）：png/webp/gif/jpg 原样存，其它才转 */
+            const saveExt = memeSaveExt(ext);
+            if (saveExt !== String(ext).toLowerCase()) {
               const conv = await shrinkImage(file, { format: 'png', maxDim: 4096, keepName: true });
               if (conv?.file) {
                 try {
-                  const pngBytes = readFileSync(conv.file);
-                  writeFileSync(join(tmpdir(), 'gpw-keep-src.png'), pngBytes); // 供下面统一读取
+                  bytes = readFileSync(conv.file); // 后面写盘用的是这个变量 ✓
                   saveExt = 'png';
-                  bytes = pngBytes; // 后面写盘用的是这个变量 ✓
                 } catch (error) {
                   log('入库转 PNG 失败，按原格式存：' + (error?.message ?? error));
                 }

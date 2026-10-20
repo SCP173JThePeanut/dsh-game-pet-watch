@@ -380,6 +380,17 @@ eq(plugin.normalizeConfig({ gohReactionBudget: 0 }).gohReactionBudget, 0, '0 = �
   eq(resolveGpwRoot({ configured: 'D:/mine', packageDir: '/x', fsExists: () => true }), 'D:/mine', '配置优先');
 }
 
+// ── 9j. 表情包扩展名单一来源（扫描/入库/导出共用）──
+{
+  const { MEME_EXTS, memeSaveExt } = await import('../src/images.js');
+  eq(MEME_EXTS.join(','), '.png,.webp,.gif,.jpg,.jpeg', '支持的扩展名清单');
+  eq(memeSaveExt('gif'), 'gif', 'gif 原样存（不转 png，动画不丢）');
+  eq(memeSaveExt('.GIF'), 'gif', '大小写/点号都容忍');
+  eq(memeSaveExt('jpeg'), 'jpg', 'jpeg 归一成 jpg');
+  eq(memeSaveExt('bmp'), 'png', '不支持的才转 png');
+  eq(memeSaveExt(''), 'png', '空值也回退 png');
+}
+
 // ── 9b. 记忆三件套：短期窗口 / 压缩阈值 / 长期上限（设置页滑块就是这三个键） ──
 eq(plugin.normalizeConfig({}).memoryRecentTurns, 12, '短期记忆默认 12 条');
 eq(plugin.normalizeConfig({ memoryRecentTurns: 0 }).memoryRecentTurns, 0, '短期记忆 0 = 不带');

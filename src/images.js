@@ -21,6 +21,20 @@ export function memesDirs(userRoot, upstreamRoot) {
   return [join(userRoot, 'memes'), join(upstreamRoot, 'assets', 'memes')];
 }
 
+/**
+ * **表情包支持的扩展名**（单一来源）。
+ *
+ * 2026-10-20 统一：以前扫描器只认 png/webp，入库时就把 gif 转成 png（动画丢了）；
+ * 现在扫描器、入库、导出网页共用这份清单，服务端也按真实扩展名给 content-type。
+ */
+export const MEME_EXTS = ['.png', '.webp', '.gif', '.jpg', '.jpeg'];
+
+/** 不带点的版本（入库命名用）：'gif' 等；不支持的返回 'png'（调用方会去转格式） */
+export function memeSaveExt(ext) {
+  const e = String(ext ?? '').toLowerCase().replace(/^\./, '');
+  return e === 'jpeg' ? 'jpg' : MEME_EXTS.includes('.' + e) ? e : 'png';
+}
+
 /** 扫目录：返回 [{name, file, mtime, dir}]（同名以**先出现的目录**为准，即用户目录覆盖包内） */
 export function scanMemes(dirs) {
   const out = [];
@@ -39,8 +53,10 @@ export function scanMemes(dirs) {
        * 名字统一去掉扩展名；客户端请求 `<名>.png` 时由副本的图片路由依次回落
        * （png → webp → gif → jpg，见 gpw-server.cjs 的表情包分支）。
        */
-      if (!/\.(png|webp|gif|jpe?g)$/i.test(file)) continue;
-      const name = file.replace(/\.(png|webp|gif|jpe?g)$/i, '');
+      const lowerFile = file.toLowerCase();
+      const hitExt = MEME_EXTS.find((ext) => lowerFile.endsWith(ext));
+      if (!hitExt) continue;
+      const name = file.slice(0, -hitExt.length);
       if (!name || seen.has(name)) continue;
       try {
         const info = statSync(join(dir, file));
