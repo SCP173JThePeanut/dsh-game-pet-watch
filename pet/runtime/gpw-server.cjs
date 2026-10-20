@@ -550,27 +550,40 @@ async function startPetServer(options) {
       }
 
       /**
-       * 表情包：/dsh-pet-7340/pic/memes/<名>.png
+       * 表情包：/dsh-pet-7340/pic/memes/<名>[.<ext>]
        *
        * 必须在通用 /pic/ 之前处理：通用规则只会去 assets/pic 找，找不到表情包（表情包在
        * 用户目录与 assets/memes）。目录链与后端的语义一致：**用户目录优先，回落包内**。
-       * 客户端把 URL 硬编码成 `<名>.png`（见 shared-core 的 memeImageUrl），所以不认其它扩展名 ——
-       * 抓来的图必须转成 PNG 存进这里。
+       *
+       * 2026-10-20：支持 **GIF**（以及 jpg）。以前只认 `.png`、候选只有 png/webp，
+       * 于是丢一张 `cat.gif` 进 memes 目录也打不开；现在按请求的扩展名优先、其余依次回落，
+       * 并按**真实扩展名**给 content-type（gif 交给 `<img>` 自己动）。
        */
       if (path.startsWith(PET_PREFIX + '/pic/memes/')) {
         const raw = decodeURIComponent(path.slice((PET_PREFIX + '/pic/memes/').length));
-        // 支持 <名>.png 与 <素材根>/<名>.png 两种形态（后者只取最后一段：副本只有一个素材根）
+        // 支持 <名>[.ext] 与 <素材根>/<名>[.ext] 两种形态（后者只取最后一段：副本只有一个素材根）
         const rel = raw.split('/').filter(Boolean).pop() ?? '';
-        if (!rel || rel.includes('..') || !/\.png$/i.test(rel)) {
+        const MEME_EXTS = ['.png', '.webp', '.gif', '.jpg', '.jpeg'];
+        const lowerRel = rel.toLowerCase();
+        const askedExt = MEME_EXTS.find((ext) => lowerRel.endsWith(ext)) ?? '';
+        const stem = askedExt ? rel.slice(0, -askedExt.length) : rel;
+        if (!rel || rel.includes('..') || !stem) {
           return sendJson(res, 400, { error: 'invalid meme name' });
         }
         /**
-         * 客户端把 URL 硬编码成 `<名>.png`，但站上抓来的图只有 webp（Node 没有图像库，
-         * 转格式就得拉 Python）。所以这里把 `<名>.png` **回落到 `<名>.webp`**：
-         * 磁盘上如实存 webp，路由负责对上客户端的名字。按真实扩展名给 content-type。
+         * 候选顺序：**请求的扩展名优先**，然后 png → webp → gif → jpg。
+         * 这样 `<名>.png` 仍能回落到磁盘上的 .webp（老行为不改），
+         * 而 `<名>.gif` 会直接命中 gif 文件。
          */
-        const stem = rel.slice(0, -4);
-        const candidates = [`${stem}.png`, `${stem}.webp`];
+        const order = askedExt ? [askedExt, ...MEME_EXTS.filter((e) => e !== askedExt)] : MEME_EXTS;
+        const candidates = order.map((ext) => `${stem}${ext}`);
+        const MIME_BY_EXT = {
+          '.png': 'image/png',
+          '.webp': 'image/webp',
+          '.gif': 'image/gif',
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+        };
         // 目录链由调用方传入（与后端"链怎么算由调用方唯一决定"同一套语义）：
         // 用户目录优先，回落原版包内目录。这里曾经写 join(options.userRoot,...) —— 那个字段不存在，
         // 于是 path 收到 undefined、整条路由 500（连 404 都走不到）。
@@ -579,8 +592,11 @@ async function startPetServer(options) {
           for (const candidate of candidates) {
             const file = safeJoin(dir, candidate);
             if (!file || !existsSync(file)) continue;
-            const type = candidate.toLowerCase().endsWith('.webp') ? 'image/webp' : 'image/png';
-            res.writeHead(200, { 'content-type': type, 'cache-control': 'no-cache' });
+            const ext = candidate.slice(candidate.lastIndexOf('.')).toLowerCase();
+            res.writeHead(200, {
+              'content-type': MIME_BY_EXT[ext] ?? 'application/octet-stream',
+              'cache-control': 'no-cache',
+            });
             return res.end(readFileSync(file));
           }
         }

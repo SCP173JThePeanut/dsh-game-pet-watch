@@ -59,11 +59,14 @@ writeFileSync(join(upstream, 'assets', 'memes', '只有包内有.png'), 'x');
 writeFileSync(join(userRoot, 'memes', '同名.png'), 'x');
 writeFileSync(join(userRoot, 'memes', '用户加的.png'), 'x');
 writeFileSync(join(userRoot, 'memes', '也收我.webp'), 'x');   // webp 要收（站上抓来的只有 webp）
-writeFileSync(join(userRoot, 'memes', '忽略我.jpg'), 'x');   // 其它扩展名仍然忽略
+writeFileSync(join(userRoot, 'memes', '动图.gif'), 'x');       // gif 要收（气泡里 <img> 会自己动）
+writeFileSync(join(userRoot, 'memes', '照片.jpg'), 'x');       // jpg 也要收
+writeFileSync(join(userRoot, 'memes', '忽略我.bmp'), 'x');     // 真正不支持的扩展名仍然忽略
 const dirs = memesDirs(userRoot, upstream);
 const scanned = scanMemes(dirs);
 check('收 .png 与 .webp', scanned.some((x) => x.name === '也收我') && scanned.some((x) => x.name === '只有包内有'));
-check('忽略其它扩展名', !scanned.some((x) => x.name === '忽略我'), `共 ${scanned.length} 张`);
+check('收 .gif 与 .jpg', scanned.some((x) => x.name === '动图') && scanned.some((x) => x.name === '照片'));
+check('忽略不支持的扩展名', !scanned.some((x) => x.name === '忽略我'), `共 ${scanned.length} 张`);
 check('同名以用户目录为准', scanned.find((x) => x.name === '同名')?.dir === dirs[0]);
 check('包内独有的仍在', scanned.some((x) => x.name === '只有包内有'));
 
@@ -84,16 +87,19 @@ const result = await syncImageCatalog({
   store,
   dirs,
   descriptions: { ...pkg, ...scraped },
+  // 默认每次最多补 3 张（防一次烧掉一大笔）；这里 4 张缺描述，显式放宽
+  maxDescribe: 10,
   describe: async ({ name }) => {
     describeCalls += 1;
     store.data.items[name] = { at: Date.now(), text: '视觉描述：' + name };
   },
   log: () => {},
 });
-check('有描述的不调视觉模型', describeCalls === 2, `describe 调用 ${describeCalls} 次（"同名"与"也收我"缺描述）`);
+check('有描述的不调视觉模型', describeCalls === 4, `describe 调用 ${describeCalls} 次（"同名"、"也收我"、"动图"、"照片"缺描述）`);
 check('描述直填正确', store.item('只有包内有')?.text === '包内描述' && store.item('用户加的')?.text === '抓来的台词');
 check('缺描述的走了视觉通道', store.item('同名')?.text === '视觉描述：同名');
-check('同步结果计数', result.total === 4 && result.added === 2 && result.described === 2, JSON.stringify(result));
+check('gif / jpg 也进目录且写描述', store.item('动图')?.text === '视觉描述：动图' && store.item('照片')?.text === '视觉描述：照片');
+check('同步结果计数', result.total === 6 && result.added === 2 && result.described === 4, JSON.stringify(result));
 
 store.data.items['只有包内有'].text = '人工改过';
 const again = await syncImageCatalog({ store, dirs, descriptions: { '只有包内有': '不该覆盖' }, log: () => {} });

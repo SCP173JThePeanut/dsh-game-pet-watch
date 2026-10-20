@@ -457,10 +457,19 @@ function whisperBubbleView(state) {
 		text: msg
 	}];
 }
+/** 配图支持的扩展名（2026-10-20：加 gif/jpg，之前只认 .png） */
+const MEME_EXTS = [".png", ".webp", ".gif", ".jpg", ".jpeg"];
 function memeImageUrl(name, base = "/dsh-pet-7340", assetRoot = "") {
 	const root = String(assetRoot ?? "").trim();
 	const prefix = root ? "/pic/memes/" + encodeURIComponent(root) : "/pic/memes";
-	return base + prefix + "/" + encodeURIComponent(name) + ".png";
+	/**
+	 * 名字里**已经带扩展名**就原样用（`cat.gif` / `cat.webp`）；
+	 * 没带才补 `.png`（服务端会按 .png → .webp → .gif → .jpg 依次回落）。
+	 */
+	const key = String(name ?? "").trim();
+	const lower = key.toLowerCase();
+	const hasExt = MEME_EXTS.some((ext) => lower.endsWith(ext));
+	return base + prefix + "/" + encodeURIComponent(key) + (hasExt ? "" : ".png");
 }
 const MEME_IMG_CLASS = "pet-bub-img";
 const MEME_BUBBLE_CLASS = "has-img";

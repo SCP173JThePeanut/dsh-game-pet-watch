@@ -4166,7 +4166,7 @@ function applyInner(ctx, rawConfig, log) {
    *   ③ 跳过当前这条（按 message_id 去重），否则它会把"刚才那句"当成别人说的再说一遍
    */
   async function groupContextBlock(event) {
-    if (!config.onebotContext || event?.scope !== 'group' || !onebot) return '';
+    if (!config.onebotContext || event?.scope !== 'group' || !onebotNow()) return '';
     const groupId = String(event.groupId);
     const cached = groupContextCache.get(groupId);
     const ttl = Math.max(1, config.onebotContextCacheSec) * 1000;
@@ -4427,6 +4427,13 @@ function applyInner(ctx, rawConfig, log) {
     }
     const clean = String(text ?? '').trim();
     /**
+     * **会话键要先算**：下面配图的冷却表就是按它索引的。
+     * 原来写在 `if (!clean && !imageBase64)` 之后 → 配图分支里读 `key` 会撞上 TDZ
+     * （`ReferenceError: Cannot access 'key' before initialization`），被 catch 吞掉后
+     * 变成"永远只发文字" ✗。
+     */
+    const key = peer?.scope === 'group' ? `group:${peer.groupId}` : `private:${peer.userId}`;
+    /**
      * 配图：options.image 是本地文件路径（桌宠气泡里那张）。两个前提：配置允许 + 文件不太大。
      * 任何一步不满足就退回纯文本 —— 宁可少发图，也不能让回话发不出去。
      */
@@ -4458,7 +4465,6 @@ function applyInner(ctx, rawConfig, log) {
       }
     }
     if (!clean && !imageBase64) return false;
-    const key = peer?.scope === 'group' ? `group:${peer.groupId}` : `private:${peer.userId}`;
     const now = Date.now();
     const recent = (onebotSentAt.get(key) ?? []).filter((t) => now - t < 60000);
     if (recent.length >= ONEBOT_SEND_PER_MINUTE) {
@@ -4475,7 +4481,11 @@ function applyInner(ctx, rawConfig, log) {
        */
       const separate = config.onebotImageSeparate && imageBase64 && clean;
       if (peer?.scope === 'group') {
-        const res = await onebotNow()?.sendGroupMsg(peer.groupId, clean, separate ? {} : { imageBase64 });
+        /**
+         * 用 `sayClient`（= 这条鱼/这次事件的连接）而不是 `onebotNow()`（业务主鱼）✗→✓：
+         * 按鱼绑号之后，两条鱼各连一个号；回话走错连接就会用 A 号回 B 号看到的群。
+         */
+        const res = await sayClient?.sendGroupMsg(peer.groupId, clean, separate ? {} : { imageBase64 });
         const mid = res?.data?.message_id;
         if (mid !== undefined) {
           onebotSentIds.push(String(mid));
@@ -4483,13 +4493,13 @@ function applyInner(ctx, rawConfig, log) {
         }
         if (separate) {
           await new Promise((r) => setTimeout(r, Math.max(0, config.onebotImageDelayMs)));
-          await onebotNow()?.sendGroupMsg(peer.groupId, '', { imageBase64 });
+          await sayClient?.sendGroupMsg(peer.groupId, '', { imageBase64 });
         }
       } else {
-        await onebotNow()?.sendPrivateMsg(peer.userId, clean, separate ? {} : { imageBase64 });
+        await sayClient?.sendPrivateMsg(peer.userId, clean, separate ? {} : { imageBase64 });
         if (separate) {
           await new Promise((r) => setTimeout(r, Math.max(0, config.onebotImageDelayMs)));
-          await onebotNow()?.sendPrivateMsg(peer.userId, '', { imageBase64 });
+          await sayClient?.sendPrivateMsg(peer.userId, '', { imageBase64 });
         }
       }
       recent.push(now);
@@ -6602,12 +6612,21 @@ function applyInner(ctx, rawConfig, log) {
                 }
                 for (const dir of dirs) {
                   let picked = null;
-                  for (const ext of ['.png', '.webp']) {
+                  // 导出网页时内联配图：也认 gif / jpg（2026-10-20），MIME 按扩展名给
+                  for (const ext of ['.png', '.webp', '.gif', '.jpg', '.jpeg']) {
                     const file = join(dir, name + ext);
                     try {
                       const size = statSync(file).size;
                       if (size > 900 * 1024) break;
-                      picked = { bytes: readFileSync(file), mime: ext === '.webp' ? 'image/webp' : 'image/png' };
+                      const mime =
+                        ext === '.webp'
+                          ? 'image/webp'
+                          : ext === '.gif'
+                            ? 'image/gif'
+                            : ext === '.jpg' || ext === '.jpeg'
+                              ? 'image/jpeg'
+                              : 'image/png';
+                      picked = { bytes: readFileSync(file), mime };
                       break;
                     } catch {
                       /* 试下一个扩展名/目录 */

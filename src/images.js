@@ -33,10 +33,14 @@ export function scanMemes(dirs) {
       continue; // 目录不存在很正常（用户还没放图）
     }
     for (const file of names) {
-      // 收 .png 与 .webp：站上抓来的图只有 webp，而客户端请求的是 <名>.png，
-      // 由副本的图片路由把两者对上（见 gpw-server.cjs 的表情包分支）
-      if (!/\.(png|webp)$/i.test(file)) continue;
-      const name = file.replace(/\.(png|webp)$/i, '');
+      /**
+       * 收 png / webp / **gif** / jpg（2026-10-20：以前只认 png|webp，丢一张 gif 进目录
+       * 目录里看不到、模型也就永远选不到它）。
+       * 名字统一去掉扩展名；客户端请求 `<名>.png` 时由副本的图片路由依次回落
+       * （png → webp → gif → jpg，见 gpw-server.cjs 的表情包分支）。
+       */
+      if (!/\.(png|webp|gif|jpe?g)$/i.test(file)) continue;
+      const name = file.replace(/\.(png|webp|gif|jpe?g)$/i, '');
       if (!name || seen.has(name)) continue;
       try {
         const info = statSync(join(dir, file));

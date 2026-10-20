@@ -30,6 +30,24 @@ export * from './index.js';
 writeFileSync(entry, body, 'utf8');
 console.log('已生成 ' + entry);
 
+/**
+ * **把 package.json 的 files 里的入口名换成新的**（否则新入口不会被打进 tgz）。
+ * 老版本这里写的是确切文件名，一 bump 就漏 —— 实测装出来的包缺 index-<新版>.js。
+ */
+{
+  const pkgFile = join(PACKAGE_ROOT, 'package.json');
+  const pkg = JSON.parse(readFileSync(pkgFile, 'utf8'));
+  const files = Array.isArray(pkg.files) ? pkg.files : [];
+  const nextEntry = `index-${version}.js`;
+  const kept = files.filter((f) => !/^index-[^/]+\.js$/.test(f));
+  kept.unshift(nextEntry);
+  if (JSON.stringify(kept) !== JSON.stringify(files)) {
+    pkg.files = kept;
+    writeFileSync(pkgFile, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+    console.log('已更新 package.json files 的入口：' + nextEntry);
+  }
+}
+
 const patchFlag = process.argv.indexOf('--patch');
 if (patchFlag !== -1) {
   const patchFile = process.argv[patchFlag + 1];
