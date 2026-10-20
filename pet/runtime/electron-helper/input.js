@@ -30,7 +30,29 @@ void refreshPluginOrigin();
 setInterval(() => void refreshPluginOrigin(), 10000);
 
 const field = document.querySelector('#bar input');
-const sendBtn = document.querySelector('#bar button');
+const sendBtn = document.querySelector('#bar .send');
+const scopeBtn = document.querySelector('#bar #scope');
+/**
+ * **本鱼 / 全体**：默认本鱼（站在谁面前就是跟谁说话）。
+ * 选择记在 localStorage，下次打开还是这个。
+ */
+let audience = localStorage.getItem('gpw-audience') === 'all' ? 'all' : 'self';
+function paintScope() {
+  if (!scopeBtn) return;
+  scopeBtn.textContent = audience === 'all' ? '全体' : '本鱼';
+  scopeBtn.title =
+    audience === 'all'
+      ? '现在：全体（所有鱼都能看到）— 点一下改为只对本鱼'
+      : '现在：本鱼（只记这条鱼，不广播）— 点一下改为全体';
+  scopeBtn.classList.toggle('all', audience === 'all');
+}
+paintScope();
+scopeBtn?.addEventListener('click', () => {
+  audience = audience === 'all' ? 'self' : 'all';
+  localStorage.setItem('gpw-audience', audience);
+  paintScope();
+  field.focus();
+});
 
 function tellHover(on) {
   if (window.gpwInput && typeof window.gpwInput.setHover === 'function') window.gpwInput.setHover(on);
@@ -53,7 +75,11 @@ async function send() {
     const res = await fetch(API + '/ask', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text, push: 'gpw', pet: 'gpw' }),
+      /**
+       * `port` 让插件认出**是哪条鱼**（不带会落到空 scope：表情包清单与按鱼记忆全丢）；
+       * `audience` 由上面的「本鱼 / 全体」按钮决定。
+       */
+      body: JSON.stringify({ text, push: 'gpw', pet: 'gpw', port: Number(PORT), audience }),
     });
     const data = await res.json();
     // 回复走宠物气泡显示（插件投 /gpw/say），这里只需把失败原因让用户看到

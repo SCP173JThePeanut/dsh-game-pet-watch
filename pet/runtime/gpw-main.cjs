@@ -495,7 +495,13 @@ const BADGE_SIZE = { width: 196, height: 28 };
  * 每 80ms 比一次就永远不等），所以宽度可以安全地按内容调。
  */
 let badgeWidth = BADGE_SIZE.width;
-const INPUT_SIZE = { width: 336, height: 40 };
+/**
+ * 输入框小窗尺寸。
+ *
+ * 2026-10-20：加了「本鱼 / 全体」按钮（约 56px 含间距），336 宽会把输入框挤到只有几十像素，
+ * 所以整体加宽到 400 —— 高度不变（高度受 Windows 最小值限制，别乱动）。
+ */
+const INPUT_SIZE = { width: 400, height: 40 };
 /** 输入框隐藏的宽限：从宠物身上移到输入框要跨过一段"两边都不在"的缝隙，给它时间 */
 const INPUT_HIDE_GRACE_MS = 700;
 

@@ -39,6 +39,14 @@
         background: transparent; color: #f2f2f6; font: inherit;
       }
       #bar input::placeholder { color: rgba(242, 242, 246, 0.45); }
+      /* 本鱼 / 全体：小圆角按钮，选中「全体」时描边发蓝 */
+      #bar button#scope {
+        border: 1px solid rgba(255, 255, 255, 0.28); background: rgba(20, 22, 28, 0.85);
+        color: #dfe3ea; border-radius: 999px; padding: 2px 8px; font: inherit; font-size: 11px;
+        white-space: nowrap; cursor: pointer;
+      }
+      #bar button#scope.all { border-color: rgba(120, 180, 255, 0.75); color: #bfe0ff; }
+      #bar button#scope:hover { background: rgba(40, 46, 60, 0.92); }
       #bar button {
         border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(77, 141, 255, 0.92);
         color: #fff; border-radius: 7px; padding: 2px 9px; font: inherit; cursor: pointer;
@@ -48,8 +56,10 @@
   </head>
   <body>
     <div id="bar">
+      <!-- 本鱼 / 全体：这句话只对这只鱼说，还是广播给所有鱼（默认本鱼） -->
+      <button type="button" id="scope" title="本鱼：只记这条鱼，不广播">本鱼</button>
       <input type="text" placeholder="跟鱼说一句，Enter 发送" />
-      <button type="button">发送</button>
+      <button type="button" class="send">发送</button>
     </div>
     <script src="./input.js"></script>
   </body>
