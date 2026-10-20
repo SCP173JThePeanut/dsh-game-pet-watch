@@ -82,6 +82,31 @@
   var sendBtn = document.createElement('button');
   sendBtn.type = 'button';
   sendBtn.textContent = '发送';
+  /**
+   * **本鱼 / 全体**：决定这句话是"只对这只鱼说"还是"广播给所有鱼"。
+   * 默认本鱼（你站在谁面前就是跟谁说话）；选项记在 localStorage，下次还是这个。
+   */
+  var scopeBtn = document.createElement('button');
+  scopeBtn.type = 'button';
+  scopeBtn.id = 'gpw-scope';
+  var audience = localStorage.getItem('gpw-audience') === 'all' ? 'all' : 'self';
+  function paintScope() {
+    scopeBtn.textContent = audience === 'all' ? '全体' : '本鱼';
+    scopeBtn.title =
+      audience === 'all'
+        ? '现在：全体（所有鱼都能看到这句话）— 点一下改为只对本鱼'
+        : '现在：本鱼（只记这条鱼，不广播）— 点一下改为全体';
+    scopeBtn.classList.toggle('all', audience === 'all');
+  }
+  paintScope();
+  scopeBtn.addEventListener('click', function (event) {
+    event.preventDefault();
+    audience = audience === 'all' ? 'self' : 'all';
+    localStorage.setItem('gpw-audience', audience);
+    paintScope();
+    inputEl.focus();
+  });
+  wrap.appendChild(scopeBtn);
   wrap.appendChild(inputEl);
   wrap.appendChild(sendBtn);
 
@@ -392,7 +417,11 @@
       var res = await fetch(API + '/ask', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text: text, push: 'gpw', pet: PET_ID }),
+        /**
+         * `port` 让插件认出**是哪条鱼**（不带就会落到空 scope：表情包清单/按鱼记忆全丢）；
+         * `audience` 由上面那个「本鱼 / 全体」按钮决定。
+         */
+        body: JSON.stringify({ text: text, push: 'gpw', pet: PET_ID, port: PET_PORT, audience: audience }),
       });
       var body = await res.json().catch(function () {
         return {};
@@ -501,7 +530,10 @@
       }
       // 只作用于浮层自己的三件套，不碰宠物气泡（气泡字号是原版按 --pet-size 算的，别动）
       style.textContent =
-        '#gpw-input{font-size:' + (12 * scale).toFixed(1) + 'px}' +
+        '#gpw-input #gpw-scope{border:1px solid rgba(255,255,255,.28);background:rgba(20,22,28,.82);color:#dfe3ea;border-radius:999px;padding:0 8px;height:26px;font-size:11px;line-height:24px;cursor:pointer;margin-right:6px;white-space:nowrap;pointer-events:auto}' +
+  '#gpw-input #gpw-scope.all{border-color:rgba(120,180,255,.7);color:#bfe0ff}' +
+  '#gpw-input #gpw-scope:hover{background:rgba(40,46,60,.92)}' +
+  '#gpw-input{font-size:' + (12 * scale).toFixed(1) + 'px}' +
         '#gpw-toast{font-size:' + (12 * scale).toFixed(1) + 'px}' +
         '#gpw-badge{font-size:' + (11 * scale).toFixed(1) + 'px}';
     } catch (error) {

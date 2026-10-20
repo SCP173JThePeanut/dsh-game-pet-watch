@@ -5081,21 +5081,33 @@ function applyInner(ctx, rawConfig, log) {
       const parsed = parseMasterTarget(trimmed, state.selfName);
       saidText = parsed.text;
       to = parsed.to;
+      /**
+       * **本鱼 / 全体**（2026-10-20）：`self` 只写这条鱼自己的记忆 ——
+       * 不进鱼板、不 POST /gw/master（别的鱼看不到）；其它值 = 老行为（全体广播）。
+       */
+      const onlySelf = options?.audience === 'self';
       const forMe = to === '*' || !state.selfName || to === state.selfName;
-      const memoryText =
-        to === '*' ? `（主人对全体说）${saidText}` : forMe ? saidText : `（主人对「${to}」说）${saidText}`;
+      const memoryText = onlySelf
+        ? saidText
+        : to === '*'
+          ? `（主人对全体说）${saidText}`
+          : forMe
+            ? saidText
+            : `（主人对「${to}」说）${saidText}`;
       await mem.add({ role: 'me', kind: 'reply', text: memoryText });
-      board?.addLocal(saidText, '主人', { to });
-      try {
-        await fetch(defaultGpwOrigin() + '/gpw/master', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ text: saidText, to }),
-          signal: AbortSignal.timeout(3000),
-        });
-      } catch (error) {
-        // 副本没起来不该挡住回答；本地板子里已经有了
-        log('主人消息没能写进共享记录（另一只可能收不到）：' + (error?.message ?? error));
+      if (!onlySelf) {
+        board?.addLocal(saidText, '主人', { to });
+        try {
+          await fetch(defaultGpwOrigin() + '/gw/master', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ text: saidText, to }),
+            signal: AbortSignal.timeout(3000),
+          });
+        } catch (error) {
+          // 副本没起来不该挡住回答；本地板子里已经有了
+          log('主人消息没能写进共享记录（另一只可能收不到）：' + (error?.message ?? error));
+        }
       }
     }
     try {
@@ -5735,11 +5747,17 @@ function applyInner(ctx, rawConfig, log) {
                 const pets = Array.isArray(config.pets) ? config.pets : [];
                 return findFish(pets, { id: wantFish, port: wantPort }) || queryFish;
               })();
+              /**
+               * `audience`：'self' = 只对这只鱼说（写它自己的记忆、不进鱼板、不广播）；
+               * 其它/缺省 = 老行为（全体广播）。
+               */
+              const audience = payload.audience === 'self' ? 'self' : 'all';
               return sendJson(res, 200, await reply(payload.text, {
                 target: payload.push,
                 petId: payload.pet,
                 scope: fishCfg ? fishCfg.scope : undefined,
                 fish: fishCfg,
+                audience,
                 /** 回话目标：问哪条就回哪条 ✓（不带 = 落到主鱼 ✗ 就是那个"7341 问、7342 答"的 bug ✓） */
                 origin: fishCfg ? String(fishCfg.origin ?? '') : '',
               }));

@@ -1,6 +1,6 @@
 {
   "name": "dsh-pet-gpw",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "private": true,
   "description": "dsh-pet 的独立副本桌面宠物：鼠标扫过出现输入框、右键打开游戏观察面板，话由 dsh-game-pet-watch 生成。原版 dsh-pet 不受影响。",
   "type": "module",
