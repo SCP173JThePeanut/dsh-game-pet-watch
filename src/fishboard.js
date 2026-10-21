@@ -120,7 +120,19 @@ export function filterByScope(entries, scope = '') {
 }
 
 export function timelineBlock(entries, { limit = 8, now = Date.now(), selfName = '', scope = '' } = {}) {
-  const recent = mergeTimeline(filterByScope(entries, scope), limit);
+  /**
+   * **"对别人说的"不进我的上下文**（2026-10-21）：
+   * 主人用「本鱼」模式跟某一只说话时，那条记录会带着收件人名字写进鱼板
+   * （这样记录页里主人的话不会消失），但**不该**被另一只鱼当成对自己说的。
+   * 规则：`to` 是具体名字、且不是我的名字 → 跳过；`to` 为空/`*`/QQ 会话坐标 → 照常。
+   */
+  const notForMe = (e) => {
+    const to = String(e?.to ?? '').trim();
+    if (!to || to === '*' || !selfName) return false;
+    if (/^(group|private):/.test(to)) return false;
+    return to !== selfName;
+  };
+  const recent = mergeTimeline(filterByScope(entries, scope).filter((e) => !notForMe(e)), limit);
   if (!recent.length) return '';
   const lines = recent.map((item) => {
     const secs = Math.max(0, Math.round((now - item.at) / 1000));

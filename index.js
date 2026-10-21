@@ -5268,10 +5268,17 @@ function applyInner(ctx, rawConfig, log) {
       saidText = parsed.text;
       to = parsed.to;
       /**
-       * **本鱼 / 全体**（2026-10-20）：`self` 只写这条鱼自己的记忆 ——
-       * 不进鱼板、不 POST /gw/master（别的鱼看不到）；其它值 = 老行为（全体广播）。
+       * **本鱼 / 全体**（2026-10-20，2026-10-21 修）：
+       *   · `self`：**仍然写进鱼板**（否则记录页里主人的话就消失了 —— 主人报过这点），
+       *     只是标成"对这条鱼说的"，并把**广播**（/gw/master）跳过；
+       *   · 其它：老行为，标 `*` 并广播。
+       *
+       * 提示词那边会按 `to` 过滤：标了别人名字的条目不进我的上下文（见 fishboard.timelineBlock）。
        */
       const onlySelf = options?.audience === 'self';
+      const selfNameForBoard = String(options?.fish?.name ?? '').trim() || state.selfName || '';
+      /** self 时把"收件人"写成这条鱼的名字：记录页照样显示，但别的鱼的提示词会跳过它 */
+      const boardTo = onlySelf ? selfNameForBoard || '__self__' : to;
       const forMe = to === '*' || !state.selfName || to === state.selfName;
       const memoryText = onlySelf
         ? saidText
@@ -5281,8 +5288,8 @@ function applyInner(ctx, rawConfig, log) {
             ? saidText
             : `（主人对「${to}」说）${saidText}`;
       await mem.add({ role: 'me', kind: 'reply', text: memoryText });
+      board?.addLocal(saidText, '主人', { to: boardTo });
       if (!onlySelf) {
-        board?.addLocal(saidText, '主人', { to });
         try {
           await fetch(defaultGpwOrigin() + '/gw/master', {
             method: 'POST',
