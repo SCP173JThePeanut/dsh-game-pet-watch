@@ -5327,7 +5327,15 @@ function applyInner(ctx, rawConfig, log) {
        *      always（默认，老行为）/ whenRunning（暂停时不带图，只靠文字）/ never（从不带图）
        */
       const askCaptureMode = config.askCapture || 'always';
-      const allowShot = askCaptureMode === 'always' || (askCaptureMode === 'whenRunning' && !state.paused);
+      /**
+       * **"暂停"有两种**：全局暂停（state.paused）与**单鱼暂停**（rt.paused，胶囊/面板上点的那个）。
+       * 只看全局的话，主人单独停掉这条鱼再说话，仍然会带截图 —— 实测就是这个没生效。
+       */
+      const fishPausedNow = Boolean(
+        options?.fish && fishRuntimeOf(fishKeyOf(options.fish)).paused,
+      );
+      const pausedNow = Boolean(state.paused || fishPausedNow);
+      const allowShot = askCaptureMode === 'always' || (askCaptureMode === 'whenRunning' && !pausedNow);
       let frame = null;
       if (allowShot) {
         frame = capture.latest();
@@ -5355,7 +5363,7 @@ function applyInner(ctx, rawConfig, log) {
        * 返回里带 paused 标记，界面能明确告诉用户"自动跟拍仍是暂停的"，
        * 避免用户以为"发一条消息就把暂停解除了"，然后疑惑为什么后面还在自动调用。
        */
-      const wasPaused = state.paused;
+      const wasPaused = Boolean(state.paused || (options?.fish && fishRuntimeOf(fishKeyOf(options.fish)).paused));
       state.lastModelError = '';
       /**
        * 配图要取 `decision.img`（模型刚挑的），**不是** `options?.image`。
