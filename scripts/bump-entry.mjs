@@ -7,7 +7,7 @@
  * 为什么需要它：加载器按模块 URL 缓存已求值的模块，改 index.js 不会生效；
  * 换个入口文件名（= 换 URL）才会重新求值。
  */
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -29,6 +29,21 @@ export * from './index.js';
 `;
 writeFileSync(entry, body, 'utf8');
 console.log('已生成 ' + entry);
+
+/**
+ * **删掉旧版本入口**（规则：仓库里只留当前版本的 index-<x.y.z>.js）。
+ * 只删形如 index-1.2.3.js 的文件，别的一律不碰。
+ */
+{
+  let removed = 0;
+  for (const file of readdirSync(PACKAGE_ROOT)) {
+    if (!/^index-\d+\.\d+\.\d+\.js$/.test(file)) continue;
+    if (file === `index-${version}.js`) continue;
+    unlinkSync(join(PACKAGE_ROOT, file));
+    removed += 1;
+  }
+  if (removed) console.log('已删旧入口 ' + removed + ' 个（仓库只留当前版本）');
+}
 
 /**
  * **把 package.json 的 files 里的入口名换成新的**（否则新入口不会被打进 tgz）。
