@@ -141,6 +141,29 @@ export const name = 'dsh-game-pet-watch';
 import { GohWatcher, gohStateFile, GAME_SOURCE_OPTIONS, isGameSourceOn, DEFAULT_IMPORTANT_KINDS } from './src/goh.js';
 import { MechanicsStore, DATABASE_SOURCE_OPTIONS, isDatabaseSourceOn, MECHANICS_TOOL } from './src/mechanics.js';
 import { loadGalleryIndex, flattenGallery, findAndFetchMeme, MEME_TOOL } from './src/memes.js';
+
+/**
+ * **接话工具**：模型说完一句后，如果还想"接着再补一句"，就调用它。
+ *
+ * 为什么用工具而不是让它一次输出多句：一次输出多句会破坏"最终只输出一个 JSON"的约定，
+ * 解析层要处理数组、容错率直线下降；用工具则每轮**仍然只有一个 JSON**，
+ * 只是这个 JSON 是"这一句"，调用几次就有几句。
+ */
+const SPEAK_AGAIN_TOOL = {
+  name: 'speak_again',
+  description:
+    '说完这一句后还想**接着说下一句**时调用（一次调用 = 再多说一句，每句单独一个 JSON）。' +
+    '比如想先吐槽再补一句解释、或者一句话说不完。**没有话接着说就不要调用**。' +
+    '每轮能接几次由主人设定，剩余次数会写在提示词里；次数用完后这个调用会被拒绝。',
+  parameters: {
+    type: 'object',
+    properties: {
+      reason: { type: 'string', description: '为什么还要再说一句（可选，给主人排障看的）' },
+    },
+    required: [],
+    additionalProperties: false,
+  },
+};
 import { FishBoard, timelineBlock } from './src/fishboard.js';
 import { mergeHistory, sourceCounts } from './src/history.js';
 import { createJournal } from './src/journal.js';
@@ -516,6 +539,18 @@ const DEFAULTS = {
   /** 同一次回答里最多允许几轮"查询→再答"（1 = 不允许查询） */
   mechanicsLookupRounds: 3,
   /**
+   * **思考档位**（2026-10-21，主人要求"让它思考"）：
+   * 空串 = 用 provider 默认；'off' = 明确关；其余（low/high/max…）= 具体档位。
+   * 合法值由模型自己声明（`ctx.llm.resolveModelInfo().reasoning.efforts`），
+   * 发请求前会比对一次，不在清单里就退回默认（否则 provider 会直接拒）。
+   */
+  modelThinking: '',
+  /**
+   * **接话上限**：说完一句后允许它"再调用自己接着说"几次。
+   * 0 = 关闭；每次接话 = 一次额外的模型调用（花钱），所以默认只给 2 次。
+   */
+  chainMax: 2,
+  /**
    * 表情包（配图）：像动画一样读**离线描述**，由模型自己挑一张。
    * 描述来源优先用现成的（原版包内 memes 表 / 抓取脚本写的台词表），缺的才动用视觉模型。
    */
@@ -754,6 +789,13 @@ function normalizeConfig(raw) {
   out.memoryLongTermChars = clampInt(src.memoryLongTermChars, DEFAULTS.memoryLongTermChars, 200, 20_000);
   out.memoryMaxEntries = clampInt(src.memoryMaxEntries, DEFAULTS.memoryMaxEntries, 50, 5000);
   out.compactEvery = clampInt(src.compactEvery, DEFAULTS.compactEvery, 0, 200);
+  /**
+   * 思考档位：只认字符串；空串 = provider 默认。
+   * 具体值是否被支持由 `reasoningEffortsFor()` 在发请求前比对，这里只做形状校验。
+   */
+  out.modelThinking = typeof src.modelThinking === 'string' ? src.modelThinking.trim().slice(0, 24) : DEFAULTS.modelThinking;
+  /** 接话上限：0 = 关；上限 8（再多就纯烧钱，而且台词会刷屏） */
+  out.chainMax = clampInt(src.chainMax, DEFAULTS.chainMax, 0, 8);
   return out;
 }
 
@@ -2563,6 +2605,20 @@ function applyInner(ctx, rawConfig, log) {
       '系统另外还有两道闸：群里最近 30 分钟得有人说活、且距你上次主动发群至少 5 分钟；',
       '不满足就不发（那是系统的判断，不是你的失误）。**拿不准就别填**——宁可在气泡里说，也别去群里刷。',
       '如果你的输出没法构造成 JSON，就只写台词本身，不要引号。',
+      /**
+       * **接话**（2026-10-21）：让"一次回答多说几句"这件事有一条明确通道。
+       * 剩余次数写在提示词里（每轮接话时还会在用户消息里再提醒一次），
+       * 上限 0 时这里整段不出现，模型连这个工具都拿不到。
+       */
+      ...(Math.max(0, Math.min(8, Number(config.chainMax ?? 0))) > 0
+        ? [
+            '',
+            '**接话**：一句说不完、或者想先吐槽再补一句时，可以调用工具 `speak_again`——',
+            '每调用一次就代表"再说下一句"，然后你会被要求再输出一个 JSON（还是同样的格式）。',
+            `每轮回答最多接 ${Math.max(0, Math.min(8, Number(config.chainMax ?? 0)))} 次，剩余次数会写在消息里。`,
+            '**没有话要接着说就别调用**；只是把一句话说长，不要拆成好几条。',
+          ]
+        : []),
     );
     if (operatorText) lines.push('', `注意：主人这次是在直接问你话，必须回答，不要再输出 ${SILENCE}。`);
     return lines.join('\n');
@@ -2576,7 +2632,7 @@ function applyInner(ctx, rawConfig, log) {
    * （一个完整的 `tool-call` 块）。优先用后者（它是组装好的），只有遇到"只给增量"的
    * 适配器时才用增量拼装兜底 —— 两条路都留着，换 provider 时不会突然拿不到参数。
    */
-  async function streamOnce({ route, system, messages, tools, signal }) {
+  async function streamOnce({ route, system, messages, tools, signal, reasoning }) {
     let text = '';
     let usage;
     /** index → {id, name, args} */
@@ -2650,6 +2706,8 @@ function applyInner(ctx, rawConfig, log) {
       system,
       messages,
       ...(tools && tools.length ? { tools } : {}),
+      /** 思考档位：只在确认该模型支持这个值时才传（见 reasoningForRoute） */
+      ...(reasoning ? { reasoningEffort: reasoning } : {}),
       signal,
     });
 
@@ -2762,7 +2820,15 @@ function applyInner(ctx, rawConfig, log) {
     const tools = [];
     if (db) tools.push(MECHANICS_TOOL);
     if (config.imageInPrompt !== false && config.memeSearch !== false) tools.push(MEME_TOOL);
+    /**
+     * 接话：算了上限才把工具给出去（上限 0 = 它连这个选项都看不到）。
+     */
+    const chainMax = Math.max(0, Math.min(8, Number(config.chainMax ?? 0)));
+    if (chainMax > 0) tools.push(SPEAK_AGAIN_TOOL);
     const maxRounds = Math.max(1, Math.min(5, Number(config.mechanicsLookupRounds ?? 3)));
+    /** 本轮它有没有请求"再说一句"（由 consultModel 决定要不要真去写下一句） */
+    let chainRequested = false;
+    const reasoning = await reasoningForRoute(route);
     let raw = '';
     let usage;
     let rounds = 0;
@@ -2789,10 +2855,41 @@ function applyInner(ctx, rawConfig, log) {
         });
         if (state.modelCallLog.length > 200) state.modelCallLog.shift();
 
-        const one = await streamOnce({ route, system, messages, tools, signal: controller.signal });
+        const one = await streamOnce({ route, system, messages, tools, signal: controller.signal, reasoning });
         if (one.text.trim()) raw = one.text;
         usage = mergeUsage(usage, one.usage);
 
+        /**
+         * **接话**：这一轮它请求"接着说下一句"。
+         *
+         * 这里**不动 messages、不续写**：只把"它想接话"这个意图带出去，
+         * 由 consultModel 另开一次独立请求写下一句（见那里的说明）。
+         * 顺便：工具参数里就算带了 reason，也**不要**当成机制库查询（那是另一个工具）。
+         */
+        const speakAgain = one.toolCalls.some((call) => call.name === SPEAK_AGAIN_TOOL.name);
+        if (speakAgain) {
+          if (one.text.trim()) {
+            chainRequested = true;
+            break;
+          }
+          /**
+           * 只调了工具、这一轮没给 JSON：说明它把"要接话"当成了不要说话。
+           * 提醒一次（不消耗接话次数），下一轮必须给 JSON。
+           */
+          if (round < maxRounds) {
+            messages.push({
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: '（你调用了 speak_again，但这一轮没有给出任何 JSON。请**先输出这一句的 JSON**；如果还想接着说，再调用 speak_again。）',
+                },
+              ],
+            });
+            continue;
+          }
+          break;
+        }
         if (!tools.length || !one.toolCalls.length || round >= maxRounds) break;
 
         // 执行工具：结果作为下一条 user 消息回给模型
@@ -2879,10 +2976,44 @@ function applyInner(ctx, rawConfig, log) {
       if (withImage) lastUsage = record;
       else lastTextUsage = record;
     }
-    return { raw, ms: Date.now() - started, usage, rounds };
+    return { raw, ms: Date.now() - started, usage, rounds, chainRequested };
   }
 
   /** 看画面 → 裁决要不要说话 */
+  /**
+   * 把配置里的思考档位翻译成**这个模型真正支持的**值。
+   *
+   * 为什么不能硬塞：合法档位是每个模型自己声明的（off/low/high/max 各家不同），
+   * 塞一个不认识的字符串，provider 会直接拒掉整次调用 —— 那就从"不思考"变成"不说话"了。
+   * 规则：配置为空 → 不传（用 provider 默认）；有值但不在清单里 → 不传并记一行日志。
+   */
+  const reasoningCache = new Map();
+  async function reasoningForRoute(route) {
+    const want = String(config.modelThinking ?? '').trim();
+    if (!want) return undefined;
+    const key = route.provider + '/' + route.model;
+    let info = reasoningCache.get(key);
+    if (info === undefined) {
+      try {
+        info = await ctx.llm.resolveModelInfo(route.provider, route.model);
+      } catch {
+        info = null;
+      }
+      reasoningCache.set(key, info ?? null);
+    }
+    const efforts = info?.reasoning?.efforts ?? [];
+    if (!efforts.length) {
+      log('这个模型没声明思考档位（' + key + '），思考按 provider 默认走');
+      return undefined;
+    }
+    const hit = efforts.find((e) => String(e.id) === want);
+    if (!hit) {
+      log('思考档位「' + want + '」不在 ' + key + ' 的支持列表里（可用：' + efforts.map((e) => e.id).join('/') + '），本次用默认');
+      return undefined;
+    }
+    return want;
+  }
+
   async function consultModel(pngFile, operatorText, masterTo = '', reason = '', mem = memory, scope = '', fish = null) {
     /**
      * 游戏事件上下文放在**用户消息**里，而不是系统提示词里。
@@ -2912,15 +3043,68 @@ function applyInner(ctx, rawConfig, log) {
       ? timelineBlock(board.timeline(12), { limit: 8, selfName: selfNameForPrompt || board.selfName, scope })
       : '';
     const question = composeQuestion({ operatorText, gameBlock, boardBlock, masterTo, selfName: selfNameForPrompt });
-    const { raw, ms } = await runModel({
-      system: buildSystemPrompt(operatorText, mem, fish),
+    const systemPrompt = buildSystemPrompt(operatorText, mem, fish);
+    const firstRun = await runModel({
+      system: systemPrompt,
       text: question,
       withImage: pngFile,
       // 由调用方说明原因；没说明就按"有 operatorText 就算主人说话，否则算周期观察"兜底
       reason: reason || (operatorText ? 'ask' : 'interval'),
     });
+    const { raw } = firstRun;
+    let ms = firstRun.ms;
+    /**
+     * **接话**：它要求"再说一句"时，**另开一次独立请求**写下一句。
+     *
+     * 为什么不在同一个请求里续写：那需要伪造 assistant(+tool-call) 消息再继续，
+     * DSH 的适配层会报 `Cannot read properties of undefined (reading 'replayState')`（实测踩到）。
+     * 独立请求还顺带满足"每轮最终输出只有一个 JSON"：每一句都是一次完整回答。
+     */
+    const chainMax = Math.max(0, Math.min(8, Number(config.chainMax ?? 0)));
+    const utterances = [];
+    let chainWanted = Boolean(firstRun.chainRequested);
+    let chainLeft = chainMax;
+    let lastPhrase = parseDecision(raw, config.maxChars).phrase || '';
+    while (chainWanted && chainLeft > 0) {
+      chainLeft -= 1;
+      const hint =
+        `（接话：你上一条已经说的是「${lastPhrase || '(没说)'}」。` +
+        '现在**接着说下一句新的**，不要重复刚才那句，也不要复述它；' +
+        '仍然只输出一个 JSON。' +
+        `剩余接话次数：${chainLeft}${chainLeft === 0 ? '（这次是最后一句）' : ''}）`;
+      const run = await runModel({
+        system: systemPrompt,
+        text: question + '\n\n' + hint,
+        withImage: pngFile,
+        reason: 'chain',
+      });
+      ms += run.ms;
+      const decision = parseDecision(run.raw, config.maxChars);
+      if (!decision.phrase) break;
+      utterances.push(String(run.raw ?? '').trim());
+      lastPhrase = decision.phrase;
+      chainWanted = Boolean(run.chainRequested);
+      state.chained = (state.chained || 0) + 1;
+    }
     state.lastModelMs = ms;
     const decision = parseDecision(raw, config.maxChars);
+    /**
+     * **接话**：前面几轮说的是"同一件事的前几句"，按顺序排队。
+     * 每一句都单独解析（各自一个 JSON），`remember` 也各自生效。
+     */
+    const followUps = [];
+    for (const one of utterances ?? []) {
+      const d = parseDecision(String(one), config.maxChars);
+      if (!d.phrase) continue;
+      if (d.remember && config.memoryAllowSelfNote !== false) {
+        try {
+          await mem.appendLongTerm(d.remember, { limit: config.memoryLongTermChars });
+        } catch {
+          /* 记不住不影响说话 */
+        }
+      }
+      followUps.push({ text: d.phrase, anim: d.anim, img: d.img, toGroup: d.toGroup === true });
+    }
     /**
      * **模型自己记一条长期记忆**（2026-10-19）：短期窗口只有 memoryRecentTurns 条，
      * 重要的约定很容易被挤出上下文；给它一个"留条子"的口子。
@@ -2961,6 +3145,8 @@ function applyInner(ctx, rawConfig, log) {
        * 教训：**解析出来 ≠ 传出去**，中间每一层都要核 ✓。
        */
       toGroup: decision.toGroup === true,
+      /** 接话：按顺序排队的后续几句（每句一个 JSON，已经解析好） */
+      followUps,
       raw,
       ms,
     };
@@ -5170,6 +5356,25 @@ function applyInner(ctx, rawConfig, log) {
       await playAnim(decision.anim, options?.origin || '');
       await recordSpeak(phrase, 'reply', mem);
       /**
+       * **接话的后续几句**（2026-10-21）：每一句都是模型自己"再调用一次"生成的，
+       * 这里按顺序补投到同一只鱼的气泡里（间隔 0.9 秒，别糊成一团），并各自入账。
+       * 动画只在第一句播（后面再播会显得抽搐）。
+       */
+      for (const extra of decision.followUps ?? []) {
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        if (config.pushToPet) {
+          await pushToPet(
+            extra.text,
+            options?.target || config.petTarget,
+            options?.petId,
+            extra.img,
+            options?.origin || '',
+          );
+        }
+        await recordSpeak(extra.text, 'reply', mem);
+        state.chainSaid = (state.chainSaid || 0) + 1;
+      }
+      /**
        * 镜像到 QQ：
        *   - `reply` 档：只回"触发这次回答的那个会话"（群里被 @ 后回答 → 发回那个群）
        *   - `always` 档：每句话都发到"配置的第一个群"（或最近一次说话的会话）
@@ -5368,6 +5573,12 @@ function applyInner(ctx, rawConfig, log) {
           lastFrameBytes: state.lastFrameBytes,
           // 用量：带图那次 / 不带图那次各一条，用来对比两种模式的开销
           usage: { withImage: lastUsage ?? null, textOnly: lastTextUsage ?? null },
+          /** 接话：累计请求了几次 / 实际多说了几句（排障"到底有没有接"用） */
+          chained: state.chained || 0,
+          chainSaid: state.chainSaid || 0,
+          /** 当前生效的思考档位（空 = 跟随模型默认）与接话上限 */
+          thinking: config.modelThinking || '',
+          chainMax: Math.max(0, Math.min(8, Number(config.chainMax ?? 0))),
         };
         if (!rt) return { ...global, perFish: false };
         return {
@@ -5629,6 +5840,34 @@ function applyInner(ctx, rawConfig, log) {
             }
 
             /**
+             * **模型信息**：`GET /model-info`
+             *
+             * 为什么需要：思考档位（reasoningEffort）的合法值是**每个模型自己声明的**
+             * （off / low / high / max 各家不一样），硬编码一个值很可能被 provider 拒。
+             * 设置页要按这里返回的 `efforts` 生成下拉，插件发请求时也先比对一遍。
+             */
+            if (rest === 'model-info') {
+              if (method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+              try {
+                const route = await resolveModel();
+                if (!route) return sendJson(res, 200, { ok: false, error: '没有可用的模型' });
+                const info = await ctx.llm.resolveModelInfo(route.provider, route.model);
+                return sendJson(res, 200, {
+                  ok: true,
+                  route,
+                  reasoning: info?.reasoning ?? null,
+                  imageInput: info?.imageInput ?? null,
+                  current: {
+                    thinking: config.modelThinking || '',
+                    chainMax: config.chainMax,
+                  },
+                });
+              } catch (error) {
+                return sendJson(res, 500, { ok: false, error: String(error?.message ?? error) });
+              }
+            }
+
+            /**
              * **每条鱼的观察状态**：`GET /fish` 读全部，`POST /fish {fish, paused}` 单独暂停/恢复。
              *
              * 为什么单独一个路由：胶囊/面板点"暂停"不该把两条鱼一起停掉
@@ -5796,6 +6035,8 @@ function applyInner(ctx, rawConfig, log) {
                  * 以前这三项只能改配置文件 —— 设置页没有控件，用户根本看不见它们。
                  */
                 'memoryRecentTurns', 'compactEvery', 'memoryLongTermChars', 'historyHideSystem', 'memoryAllowSelfNote',
+                /** 思考档位 + 接话上限（2026-10-21） */
+                'modelThinking', 'chainMax',
                 /** 路径类（换机器/换安装位置时用；留空 = 自动推） */
                 'gpwRoot', 'upstreamPetRoot', 'upstreamRoot',
                 'personality', 'rules', 'compactSystem',

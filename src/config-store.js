@@ -52,6 +52,9 @@ export const EDITABLE_KEYS = [
   'compactSystem',
   'gameSource',
   'databaseSource',
+  /** 思考档位 + 接话上限（2026-10-21）：加了 CONFIG_KEYS 还必须加这里，否则保存会被过滤掉 */
+  'modelThinking',
+  'chainMax',
 ];
 
 function scalar(value) {

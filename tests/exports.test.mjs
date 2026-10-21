@@ -380,6 +380,21 @@ eq(plugin.normalizeConfig({ gohReactionBudget: 0 }).gohReactionBudget, 0, '0 = �
   eq(resolveGpwRoot({ configured: 'D:/mine', packageDir: '/x', fsExists: () => true }), 'D:/mine', '配置优先');
 }
 
+// ── 9k. 思考档位 + 接话上限（2026-10-21）──
+{
+  const { normalizeConfig, DEFAULTS } = await import('../index.js');
+  eq(DEFAULTS.chainMax, 2, '接话默认 2 次');
+  eq(DEFAULTS.modelThinking, '', '思考默认跟随模型');
+  const n = normalizeConfig({ ...DEFAULTS, chainMax: 99 });
+  eq(n.chainMax, 8, '接话上限夹到 8');
+  const negative = normalizeConfig({ ...DEFAULTS, chainMax: -3 });
+  eq(negative.chainMax, 0, '负数夹到 0');
+  const bad = normalizeConfig({ ...DEFAULTS, modelThinking: 123 });
+  eq(bad.modelThinking, '', '非字符串思考档位退回默认');
+  const trimmed = normalizeConfig({ ...DEFAULTS, modelThinking: '  high  ' });
+  eq(trimmed.modelThinking, 'high', '思考档位去空格');
+}
+
 // ── 9j. 表情包扩展名单一来源（扫描/入库/导出共用）──
 {
   const { MEME_EXTS, memeSaveExt } = await import('../src/images.js');

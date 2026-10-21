@@ -1288,6 +1288,41 @@ window.__ModuleLoader__.load({
               range('memoryLongTermChars', '长期记忆上限（字）', 200, 8000, 200),
             ),
             h('div', { className: 'note' }, '短期记忆 = 每次对话带多少条最近的往来；压缩阈值 = 攒够多少条就压进长期记忆；0 表示关掉对应的那一项。'),
+            /**
+             * **思考 + 接话**（2026-10-21）：
+             *   · 思考档位 = reasoningEffort（'' = 按模型默认；模型不支持的值会被自动忽略）
+             *   · 接话上限 = 说完一句后还能"再调用自己"接着说几次（0 = 关）
+             */
+            h(
+              'div',
+              { className: 'gpw-cfg__grid3' },
+              h(
+                'label',
+                { className: 'gpw-cfg__field' },
+                h('span', { className: 'gpw-cfg__flabel' }, '思考档位：' + (cfg.modelThinking || '默认')),
+                h(
+                  'select',
+                  {
+                    className: 'gpw-cfg__inp',
+                    disabled: busy,
+                    value: cfg.modelThinking ?? '',
+                    onChange: (event) => setCfg((prev) => ({ ...(prev ?? {}), modelThinking: event.target.value })),
+                  },
+                  ...[
+                    ['', '默认（按模型）'],
+                    ['off', '关（不思考）'],
+                    ['low', 'low'],
+                    ['medium', 'medium'],
+                    ['high', 'high'],
+                    ['max', 'max'],
+                  ].map(([value, label]) =>
+                    h('option', { value, selected: (cfg.modelThinking ?? '') === value }, label),
+                  ),
+                ),
+              ),
+              range('chainMax', '接话次数上限（0 = 关）', 0, 8, 1),
+            ),
+            h('div', { className: 'note' }, '思考档位由模型自己声明（不同模型支持的值不一样，填了不支持的值会自动退回默认）；接话 = 说完一句后它自己再调用一次接着说，剩余次数会写进提示词。'),
             h(
               'div',
               { className: 'gpw-cfg__grid3' },
