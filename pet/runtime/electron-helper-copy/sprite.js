@@ -1069,6 +1069,21 @@ class PetSprite {
           { label: '事件文件（路径在设置里填）', action: 'goh-on' },
         ],
       },
+      /**
+       * 【副本追加】**思考档位**：直接在这只鱼的右键菜单里切 reasoningEffort。
+       * 可选值和 DSH 设置页同一个键（modelThinking）；问的是插件，不重启也不重载。
+       */
+      {
+        label: '思考档位',
+        children: [
+          { label: '默认（按模型）', action: 'think-default' },
+          { label: '关（不思考）', action: 'think-off' },
+          { label: 'low', action: 'think-low' },
+          { label: 'medium', action: 'think-medium' },
+          { label: 'high', action: 'think-high' },
+          { label: 'max', action: 'think-max' },
+        ],
+      },
       // 【副本追加】机制数据库：速查常驻 + 完整库按需工具查询
       {
         label: '机制数据库',
@@ -1150,6 +1165,12 @@ class PetSprite {
     }
     if (leaf.action === 'db-on' || leaf.action === 'db-off') {
       this.setPluginSource('database', leaf.action === 'db-on' ? 'file' : '', '机制库');
+      return;
+    }
+    /** 【副本追加】思考档位：一句话改 modelThinking，立刻生效（不用重载） */
+    if (typeof leaf.action === 'string' && leaf.action.startsWith('think-')) {
+      const value = leaf.action.slice('think-'.length);
+      this.setPluginThinking(value === 'default' ? '' : value);
       return;
     }
     if (!leaf.anim) return;
@@ -1238,6 +1259,36 @@ class PetSprite {
     }
     window.petBridge.openDshSite(url);
     this.showStatusBubble('已打开：' + url);
+  }
+
+  /**
+   * **思考档位**（2026-10-21）：POST /config {values:{modelThinking}}。
+   * '' = 跟随模型默认。插件会自己核对这个模型到底支不支持，不支持就退回默认（并写日志）。
+   */
+  setPluginThinking(value) {
+    const label = value ? '思考档位：' + value : '思考档位：跟随模型默认';
+    fetch(ORIGIN + '/gpw/brand', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : {}))
+      .catch(() => ({}))
+      .then((b) => {
+        const plugin = ((b && b.pluginOrigin) || (CONFIG && CONFIG.pluginOrigin) || 'http://127.0.0.1:19387').replace(/\/+$/, '');
+        return fetch(plugin + '/game-pet-watch/config', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ values: { modelThinking: value } }),
+        });
+      })
+      .then((res) => res.json())
+      .then((data) => {
+        const ok = data && data.ok === true;
+        this.showStatusBubble(ok ? label : '切换失败：' + ((data && (data.error || data.message)) || '插件没响应'));
+        // 面板/胶囊下次轮询就能看到新值（runtime.thinking）
+        if (typeof pollStateNow === 'function') pollStateNow();
+      })
+      .catch((e) => {
+        console.warn('[dsh-pet] 切思考档位失败', e);
+        this.showStatusBubble('切换失败：插件不可达');
+      });
   }
 
   setPluginSource(kind, source, label) {
