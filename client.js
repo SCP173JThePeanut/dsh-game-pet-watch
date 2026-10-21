@@ -1327,6 +1327,40 @@ window.__ModuleLoader__.load({
               ),
               range('chainMax', '接话次数上限（0 = 关）', 0, 8, 1),
             ),
+            /**
+             * **对话时带不带画面**（2026-10-21）：暂停只停定时观察，
+             * 这条管的是"你说话时它要不要看屏幕"。
+             */
+            h(
+              'div',
+              { className: 'gpw-cfg__grid3' },
+              h(
+                'label',
+                { className: 'gpw-cfg__field' },
+                h(
+                  'span',
+                  { className: 'gpw-cfg__flabel' },
+                  '对话时带画面：' +
+                    (cfg.askCapture === 'whenRunning' ? '暂停时不带' : cfg.askCapture === 'never' ? '从不带' : '总是带'),
+                ),
+                h(
+                  'select',
+                  {
+                    className: 'gpw-cfg__inp',
+                    disabled: busy,
+                    value: cfg.askCapture ?? 'always',
+                    onChange: (event) => set('askCapture', event.target.value),
+                  },
+                  ...[
+                    ['always', '总是带（默认）'],
+                    ['whenRunning', '暂停时不带'],
+                    ['never', '从不带'],
+                  ].map(([value, label]) =>
+                    h('option', { value, selected: (cfg.askCapture ?? 'always') === value }, label),
+                  ),
+                ),
+              ),
+            ),
             h('div', { className: 'note' }, '思考档位由模型自己声明（不同模型支持的值不一样，填了不支持的值会自动退回默认）；接话 = 说完一句后它自己再调用一次接着说，剩余次数会写进提示词。'),
             h(
               'div',

@@ -380,6 +380,15 @@ eq(plugin.normalizeConfig({ gohReactionBudget: 0 }).gohReactionBudget, 0, '0 = �
   eq(resolveGpwRoot({ configured: 'D:/mine', packageDir: '/x', fsExists: () => true }), 'D:/mine', '配置优先');
 }
 
+// ── 9l. 对话带画面三档（2026-10-21）──
+{
+  const { normalizeConfig, DEFAULTS } = await import('../index.js');
+  eq(DEFAULTS.askCapture, 'always', '默认总是带图');
+  eq(normalizeConfig({ ...DEFAULTS, askCapture: 'never' }).askCapture, 'never', 'never 保留');
+  eq(normalizeConfig({ ...DEFAULTS, askCapture: 'whenRunning' }).askCapture, 'whenRunning', 'whenRunning 保留');
+  eq(normalizeConfig({ ...DEFAULTS, askCapture: '乱写' }).askCapture, 'always', '非法值退回 always');
+}
+
 // ── 9k. 思考档位 + 接话上限（2026-10-21）──
 {
   const { normalizeConfig, DEFAULTS } = await import('../index.js');

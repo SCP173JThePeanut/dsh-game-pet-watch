@@ -546,6 +546,12 @@ const DEFAULTS = {
    */
   modelThinking: '',
   /**
+   * **对话时带不带画面**（2026-10-21）：
+   *   'always'（默认）/ 'whenRunning'（暂停时不带）/ 'never'（从不带）。
+   * 暂停只停定时观察；这条管的是"你说话时它要不要看屏幕"。
+   */
+  askCapture: 'always',
+  /**
    * **接话上限**：说完一句后允许它"再调用自己接着说"几次。
    * 0 = 关闭；每次接话 = 一次额外的模型调用（花钱），所以默认只给 2 次。
    */
@@ -796,6 +802,9 @@ function normalizeConfig(raw) {
   out.modelThinking = typeof src.modelThinking === 'string' ? src.modelThinking.trim().slice(0, 24) : DEFAULTS.modelThinking;
   /** 接话上限：0 = 关；上限 8（再多就纯烧钱，而且台词会刷屏） */
   out.chainMax = clampInt(src.chainMax, DEFAULTS.chainMax, 0, 8);
+  out.askCapture = ['always', 'whenRunning', 'never'].includes(src.askCapture)
+    ? src.askCapture
+    : DEFAULTS.askCapture;
   return out;
 }
 
@@ -1211,6 +1220,8 @@ function applyInner(ctx, rawConfig, log) {
   /** 最近一次模型调用的真实用量（来自 stream 的 usage chunk），按"带图/不带图"各记一条 */
   let lastUsage;
   let lastTextUsage;
+  /** 最近**任意**一次调用的用量（/ask 返回它：以前返回 lastUsage，结果无图那次会返回上一次带图的旧账） */
+  let lastAnyUsage;
   const dshHome =
     process.env.DSH_HOME && process.env.DSH_HOME.trim()
       ? process.env.DSH_HOME.trim()
@@ -2975,6 +2986,7 @@ function applyInner(ctx, rawConfig, log) {
       };
       if (withImage) lastUsage = record;
       else lastTextUsage = record;
+      lastAnyUsage = record;
     }
     return { raw, ms: Date.now() - started, usage, rounds, chainRequested };
   }
@@ -3314,6 +3326,10 @@ function applyInner(ctx, rawConfig, log) {
     const speakerMemo = speaker ? memoryFor(speaker.scope || speakerKey) : memory;
     const speakerRt = fishRuntimeOf(speakerKey);
     try {
+      /**
+       * 游戏事件这条**不走** `askCapture`（它自己开头就有暂停检查）：
+       * 能走到这里说明没暂停，而"看到什么"正是反应的依据，必须有图。
+       */
       let frame = capture.latest();
       if (!frame) frame = await capture.capture(config);
       // 重要事件触发（独立路径，不受空闲退避影响）—— 标成 game-event，排障时一眼分清
@@ -5306,11 +5322,17 @@ function applyInner(ctx, rawConfig, log) {
     try {
       /**
        * 用哪张图当输入：
-       *   ① `options.imageFile` —— 群友刚发的那张（主人要求"带着图回复"✓，最高优先 ✓）
-       *   ② 否则用当前屏幕截图（它自己的视野 ✓）
+       *   ① `options.imageFile` —— 群友刚发的那张（最高优先 ✓）
+       *   ② 屏幕截图 —— 受 `askCapture` 控制（2026-10-21）：
+       *      always（默认，老行为）/ whenRunning（暂停时不带图，只靠文字）/ never（从不带图）
        */
-      let frame = capture.latest();
-      if (!frame) frame = await capture.capture(config);
+      const askCaptureMode = config.askCapture || 'always';
+      const allowShot = askCaptureMode === 'always' || (askCaptureMode === 'whenRunning' && !state.paused);
+      let frame = null;
+      if (allowShot) {
+        frame = capture.latest();
+        if (!frame) frame = await capture.capture(config);
+      }
       /**
        * ⚠️ 第 7 个参数 `fish` **必须传** ✓ —— 少了它：
        *   · 拼 system 时 `catalogFor(fish?.scope || '')` 会落到**老的共用目录** ✗
@@ -5319,7 +5341,7 @@ function applyInner(ctx, rawConfig, log) {
        * 心跳那条（interval）一直传着 fish ✓，只有 /ask 与游戏事件这两条漏了 ✗。
        */
       const decision = await consultModel(
-        options?.imageFile || frame.file,
+        options?.imageFile || frame?.file,
         saidText,
         to,
         'ask',
@@ -5439,7 +5461,7 @@ function applyInner(ctx, rawConfig, log) {
       state.lastDecision = 'reply';
       /** 这里在 `replyOnce` 里 → 用**本次会话那份记忆**压缩 ✓（QQ 各群互不干扰 ✓） */
       maybeCompact(mem, qqPet());
-      return { ok: true, text: phrase, modelMs: decision.ms, usage: lastUsage ?? undefined, paused: wasPaused };
+      return { ok: true, text: phrase, modelMs: decision.ms, usage: lastAnyUsage ?? undefined, paused: wasPaused };
     } catch (error) {
       state.lastModelError = error instanceof Error ? error.message : String(error);
       pushError('reply', error);
@@ -6043,7 +6065,7 @@ function applyInner(ctx, rawConfig, log) {
                  */
                 'memoryRecentTurns', 'compactEvery', 'memoryLongTermChars', 'historyHideSystem', 'memoryAllowSelfNote',
                 /** 思考档位 + 接话上限（2026-10-21） */
-                'modelThinking', 'chainMax',
+                'modelThinking', 'chainMax', 'askCapture',
                 /** 路径类（换机器/换安装位置时用；留空 = 自动推） */
                 'gpwRoot', 'upstreamPetRoot', 'upstreamRoot',
                 'personality', 'rules', 'compactSystem',
