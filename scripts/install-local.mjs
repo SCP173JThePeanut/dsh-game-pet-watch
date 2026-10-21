@@ -89,6 +89,28 @@ const extractInto = (tgz, target) => {
   return target;
 };
 
+/**
+ * **删掉安装目录里的旧版本入口**（规则：只留当前这一版的 index-<x.y.z>.js）。
+ *
+ * 为什么要有：安装是"合并覆盖"，不会删旧文件 —— 实测装到 1.5.5 时目录里还躺着
+ * index-1.4.0 ~ index-1.5.4 共 10 个旧入口。它们不会被加载（patch 只指一个），
+ * 但会一直留在 profile 里，越装越乱。
+ */
+const pruneOldEntries = (dir, keepEntry) => {
+  let removed = 0;
+  for (const file of readdirSync(dir)) {
+    if (!/^index-\d+\.\d+\.\d+\.js$/.test(file)) continue;
+    if (file === keepEntry) continue;
+    try {
+      rmSync(join(dir, file), { force: true });
+      removed += 1;
+    } catch {
+      /* 被占用就下次再说，不影响加载 */
+    }
+  }
+  if (removed) console.log('  🧹 删掉旧入口 ' + removed + ' 个（只留 ' + keepEntry + '）');
+};
+
 /** 装完必须有的文件（少一个宿主就加载不了） */
 const REQUIRED = ['package.json', 'index.js', 'client.js', 'cordis.patch.yml'];
 
@@ -168,6 +190,8 @@ const pluginTgz = pack(PLUGIN_ROOT);
 console.log('  插件包：' + pluginTgz);
 const pluginDir = extractInto(pluginTgz, INSTALL_PLUGIN);
 verifyInstalled(pluginDir, entry, pluginTgz);
+/** 装完顺手清旧入口：安装是合并覆盖，不删的话目录里会一直堆 index-1.4.x / 1.5.x */
+pruneOldEntries(pluginDir, entry);
 console.log(`  已安装插件 → ${pluginDir}（${readdirSync(pluginDir).length} 个条目）`);
 
 /** 桌宠实际装到了哪（被占用时会换成带时间戳的目录），后面 gpwRoot 要指它 */

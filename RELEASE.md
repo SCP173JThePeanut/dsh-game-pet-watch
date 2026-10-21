@@ -105,4 +105,6 @@ gh release delete v1.4.0 -y --cleanup-tag                        # 连 tag 一�
 | 旧入口留在仓库 | 远程越积越多、克隆变慢 | 第 7 步，`git rm` 后推送 |
 | tgz 留在仓库 | `npm pack` 打成递归、仓库暴涨 791MB | 打包后立刻 `Move-Item` 到 `dist/` |
 | 配置项加了却存不住 | 设置页保存被静默丢弃 | 除了 `CONFIG_KEYS` 还要加 `src/config-store.js` 的 `EDITABLE_KEYS` |
+| 设置页控件改了"会变回去" | 页面看着变了，刷新/重开又回旧值 | 控件的 `onChange` 必须走 `set(key, value)`（它才会 POST 保存）；只 `setCfg(...)` 只是本地状态 |
+| 安装目录堆旧入口 | profile 里一堆 index-1.4.x | `install-local` 现在装完会 `pruneOldEntries`，只留当前版本 |
 | 改了 `pet/` 不改 pet 版本 | 安装后还是旧桌宠 | 同时 bump `pet/package.json` |

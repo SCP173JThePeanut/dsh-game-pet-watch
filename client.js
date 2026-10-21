@@ -1306,7 +1306,12 @@ window.__ModuleLoader__.load({
                     className: 'gpw-cfg__inp',
                     disabled: busy,
                     value: cfg.modelThinking ?? '',
-                    onChange: (event) => setCfg((prev) => ({ ...(prev ?? {}), modelThinking: event.target.value })),
+                    /**
+                     * ⚠️ 必须走 `set(key, value)` —— 它里面才会 **POST 保存**。
+                     * 原来这里只 `setCfg(...)`：UI 上看是变了，但没落盘，
+                     * 下次打开/刷新页面又读回服务端的旧值，表现就是"改了还会变回去"。
+                     */
+                    onChange: (event) => set('modelThinking', event.target.value),
                   },
                   ...[
                     ['', '默认（按模型）'],
