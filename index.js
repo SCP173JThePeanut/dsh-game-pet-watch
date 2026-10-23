@@ -1074,7 +1074,16 @@ export function parseDecision(raw, maxChars) {
        * 兼容几种写法（模型不一定听话），非 true 一律当不发 —— 宁可少发，不能刷屏。
        */
       const toGroup = obj?.toGroup === true || obj?.toGroup === 'true' || obj?.postGroup === true;
-      if (say) return { phrase: say, anim: anim || undefined, img: img || undefined, toGroup, remember, format: 'json' };
+      /**
+       * **粗体 / 字号**（2026-10-23）：给气泡加点层次，可选、不填就是普通样式。
+       *   bold: true
+       *   size: s | m | l | xl
+       */
+      const bold = obj?.bold === true || obj?.bold === 'true';
+      const sizeRaw = typeof obj?.size === 'string' ? obj.size.trim().toLowerCase() : '';
+      const size = ['s', 'm', 'l', 'xl'].includes(sizeRaw) ? sizeRaw : undefined;
+      const style = { ...(bold ? { bold: true } : {}), ...(size ? { size } : {}) };
+      if (say) return { phrase: say, anim: anim || undefined, img: img || undefined, toGroup, remember, style, format: 'json' };
       // 是个像样的 JSON 对象但没有可说的内容（{} / {"say":""} / {"silent":true}）→ 就是不说话，
       // 绝不能退回纯文本，否则会把 "{}" 这种垃圾当台词发出去
       if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
@@ -2620,8 +2629,15 @@ function applyInner(ctx, rawConfig, log) {
       '',
       '输出格式（只输出一行，不要任何其它内容）：',
       `- 不说话：${SILENCE}`,
-      '- 说话：{"say":"台词","anim":"想让它播的动画文件名（可选，不播就省略）","img":"想配的表情包名（可选，不配就省略）","toGroup":true,"remember":"以后要长期记住的一句话（可选）"}',
+      '- 说话：{"say":"台词","anim":"想让它播的动画文件名（可选，不播就省略）","img":"想配的表情包名（可选，不配就省略）","toGroup":true,"remember":"以后要长期记住的一句话（可选）","bold":true,"size":"l"}',
       '例如：{"say":"这关我熟，冲！","anim":"点击回应-元气挥手"}',
+      /**
+       * **粗体 / 字号**（2026-10-23）：给气泡一点层次，别整句都放大。
+       * 也给了一条"什么时候别用"的建议，免得它每句都加大加粗。
+       */
+      'bold 和 size 是**可选的排版**：bold:true 整句加粗；size 取 s / m / l / xl（默认 m）。',
+      '用在真的需要强调的那一句上（惊讶、喊人、关键提示）；平常聊天别用，不然满屏大字。',
+      '行内也可以用 **两个星号** 包住几个字来加粗。',
       'anim 只能填上面清单里出现过的文件名；不确定就别填（宁可不播，也别播错）。',
       'img 同理：只能填表情包清单里出现过的名字，不合适就不填（宁可不配图）。',
       'remember 是**给未来的自己留条子**：主人交代过的事、某个长期习惯、卡了很久的关卡、重要约定，',
@@ -3131,7 +3147,7 @@ function applyInner(ctx, rawConfig, log) {
           /* 记不住不影响说话 */
         }
       }
-      followUps.push({ text: d.phrase, anim: d.anim, img: d.img, toGroup: d.toGroup === true });
+      followUps.push({ text: d.phrase, anim: d.anim, img: d.img, toGroup: d.toGroup === true, style: d.style ?? {} });
     }
     /**
      * **模型自己记一条长期记忆**（2026-10-19）：短期窗口只有 memoryRecentTurns 条，
@@ -3173,6 +3189,8 @@ function applyInner(ctx, rawConfig, log) {
        * 教训：**解析出来 ≠ 传出去**，中间每一层都要核 ✓。
        */
       toGroup: decision.toGroup === true,
+      /** 气泡样式（粗体/字号），没填就是 {} */
+      style: decision.style ?? {},
       /** 接话：按顺序排队的后续几句（每句一个 JSON，已经解析好） */
       followUps,
       raw,
@@ -3362,7 +3380,7 @@ function applyInner(ctx, rawConfig, log) {
       if (phrase) {
         if (config.pushToPet) {
           // origin 也必须是它的，否则嘴上说是 legacy、画面却出现在主鱼身上
-          await pushToPet(phrase, config.petTarget, config.petId, decision.img, speaker ? String(speaker.origin ?? '') : '');
+          await pushToPet(phrase, config.petTarget, config.petId, decision.img, speaker ? String(speaker.origin ?? '') : '', decision.style);
         }
         await recordSpeak(phrase, 'game-event', speakerMemo);
         // 系统条目照常写进记忆（压缩与上下文都要用）；只有**记录页**可以按设置不显示它
@@ -3513,7 +3531,7 @@ function applyInner(ctx, rawConfig, log) {
     return undefined;
   }
 
-  async function pushToPet(text, target, petId, image, originOverride = '') {
+  async function pushToPet(text, target, petId, image, originOverride = '', style = null) {
     if (target === 'gpw') {
       /** 没显式指定就发到**业务主鱼**（= QQ 那条 ✓），而不是默认鱼 ✓ */
       const origin = originOverride || primaryGpwOrigin() || (await resolveGpwOrigin());
@@ -3538,7 +3556,13 @@ function applyInner(ctx, rawConfig, log) {
           response = await fetch(sayUrl, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ text, pet: petId || config.petId || 'gpw', ...(meme ? { image: meme } : {}) }),
+            body: JSON.stringify({
+              text,
+              pet: petId || config.petId || 'gpw',
+              ...(meme ? { image: meme } : {}),
+              ...(style && style.bold ? { bold: true } : {}),
+              ...(style && style.size ? { size: style.size } : {}),
+            }),
             signal: AbortSignal.timeout(5000),
           });
           break;
@@ -5111,7 +5135,7 @@ function applyInner(ctx, rawConfig, log) {
          * 现在包一层：记在该鱼名下、继续跑别的鱼。
          */
         try {
-          if (config.pushToPet) await pushToPet(decision.text, config.petTarget, config.petId, decision.img, fish.origin);
+          if (config.pushToPet) await pushToPet(decision.text, config.petTarget, config.petId, decision.img, fish.origin, decision.style);
           await playAnim(decision.anim, fish.origin);
         } catch (pushError) {
           const msg = pushError instanceof Error ? pushError.message : String(pushError);
@@ -5406,6 +5430,7 @@ function applyInner(ctx, rawConfig, log) {
           options?.petId,
           decision.img,
           options?.origin || '',
+          decision.style,
         );
       }
       // 动画也投给"问的那条鱼"（origin 缺省时 playAnim 会落到主鱼）
@@ -5425,6 +5450,7 @@ function applyInner(ctx, rawConfig, log) {
             options?.petId,
             extra.img,
             options?.origin || '',
+            extra.style,
           );
         }
         await recordSpeak(extra.text, 'reply', mem);

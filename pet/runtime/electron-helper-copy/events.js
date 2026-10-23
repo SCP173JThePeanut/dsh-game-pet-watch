@@ -152,7 +152,30 @@ PetSprite.prototype.pruneWhisperStack = function pruneWhisperStack() {
   return changed;
 };
 
-PetSprite.prototype.showWhisper = function showWhisper(text, image) {
+/**
+ * 把一段文字塞进元素，顺手把 `**粗体**` 变成 <strong>。
+ * 模型习惯用 Markdown 加粗；以前会原样显示 `**`。只处理成对出现的，落单的原样保留。
+ */
+function appendRichText(el, text) {
+  const raw = String(text ?? '');
+  const parts = raw.split('**');
+  if (parts.length < 3) {
+    el.textContent = raw;
+    return;
+  }
+  parts.forEach((part, i) => {
+    if (!part) return;
+    if (i % 2 === 1) {
+      const strong = document.createElement('strong');
+      strong.textContent = part;
+      el.appendChild(strong);
+    } else {
+      el.appendChild(document.createTextNode(part));
+    }
+  });
+}
+
+PetSprite.prototype.showWhisper = function showWhisper(text, image, style) {
   const pool = this.animations.events?.whisper;
   if (!pool || pool.length === 0) {
     console.error('[dsh-pet] 配置缺少 animations.events.whisper，无法播放碎碎念动画');
@@ -186,6 +209,8 @@ PetSprite.prototype.showWhisper = function showWhisper(text, image) {
   this.whisperStack.push({
     text: String(text ?? ''),
     image: typeof image === 'string' ? image : '',
+    /** { bold?: boolean, size?: 's'|'m'|'l'|'xl' } —— 由插件从决策 JSON 带下来 */
+    ...(style && typeof style === 'object' ? { style } : {}),
     until: now + WHISPER_LINE_MS,
   });
   if (this.whisperStack.length > WHISPER_STACK_MAX) {
@@ -277,7 +302,7 @@ function applySayLeaf(petId, leaf) {
   const said = S.readSay(leaf);
   if (!said) return;
   for (const s of sprites) {
-    if (s.pet.id === petId) s.showWhisper(said.text, said.image);
+    if (s.pet.id === petId) s.showWhisper(said.text, said.image, { bold: said.bold === true, size: said.size });
   }
 }
 

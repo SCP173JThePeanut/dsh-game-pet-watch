@@ -1,6 +1,6 @@
 {
   "name": "dsh-game-pet-watch",
-  "version": "1.5.10",
+  "version": "1.6.0",
   "private": true,
   "description": "DSH 桌宠观察插件（自带桌宠运行时）：看画面说话 / 游戏事件 / 多鱼记忆 / 碰撞",
   "type": "module",
@@ -12,7 +12,7 @@
     "./index-*.js": "./index-*.js"
   },
   "files": [
-    "index-1.5.10.js",
+    "index-1.6.0.js",
     "index.js",
     "client.js",
     "src",

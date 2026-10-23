@@ -249,8 +249,20 @@ async function startPetServer(options) {
         // image = 表情包名（客户端拼成 /pic/memes/<名>.png 渲染在气泡文字上方）。
         // 只透传字符串；模型选的名字由插件侧对目录校验过（防幻觉出目录外的名字）。
         const image = typeof payload.image === 'string' && payload.image.trim() ? payload.image.trim() : undefined;
-        const counter = store.writePet(petId, 'say', image ? { text, image } : { text });
-        return sendJson(res, 200, { ok: true, petId, counter, image: image ?? null });
+        /**
+         * **粗体 / 字号**（2026-10-23）：模型可以给整句加粗、放大或缩小。
+         * 白名单校验，别让乱值把 CSS 打坏：
+         *   size ∈ s | m | l | xl（不传 = m）
+         *   bold = true / false
+         */
+        const SIZES = ['s', 'm', 'l', 'xl'];
+        const size = SIZES.includes(String(payload.size || '').toLowerCase())
+          ? String(payload.size).toLowerCase()
+          : undefined;
+        const bold = payload.bold === true ? true : undefined;
+        const say = { text, ...(image ? { image } : {}), ...(bold ? { bold } : {}), ...(size ? { size } : {}) };
+        const counter = store.writePet(petId, 'say', say);
+        return sendJson(res, 200, { ok: true, petId, counter, image: image ?? null, bold: bold ?? null, size: size ?? null });
       }
       /**
        * 鱼板网络握手：`GET /gpw/brand` → 这只宠物的身份。

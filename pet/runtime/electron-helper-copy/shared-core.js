@@ -514,6 +514,12 @@ const MEME_BUBBLE_CSS = [
 	 * 越旧的越淡，视觉上仍有"新话在下面"的时间顺序。
 	 */
 	".pet-bub-line+.pet-bub-line{margin-top:calc(var(--dsh-pet-size,var(--pet-size,462px))*0.012)}",
+	/* 字号四档 + 加粗：由 say JSON 里的 size / bold 决定（2026-10-23） */
+	".pet-bub-line.size-s{font-size:.82em}",
+	".pet-bub-line.size-m{font-size:1em}",
+	".pet-bub-line.size-l{font-size:1.3em;font-weight:600}",
+	".pet-bub-line.size-xl{font-size:1.6em;font-weight:700}",
+	".pet-bub-line.is-bold,.pet-bub-line.is-bold strong{font-weight:700}",
 	".pet-bub-line.is-old{opacity:.62}",
 	".pet-bub-line.is-older{opacity:.42}"
 ].join("");

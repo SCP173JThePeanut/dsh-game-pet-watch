@@ -111,7 +111,7 @@ eq(plugin.normalizeConfig({ pets: [{ origin: 'http://127.0.0.1:7399' }] }).pets,
 eq(plugin.normalizeConfig({ pets: 'not-an-array' }).pets, [], 'pets 非数组时回落空表');
 
 // ── 4. parseDecision：模型输出 → 一句话 ──
-eq(plugin.parseDecision('{"say":"撞到本鱼了喵"}', 60), { phrase: '撞到本鱼了喵', anim: undefined, img: undefined, toGroup: false, format: 'json' }, 'parseDecision 纯 JSON');
+eq(plugin.parseDecision('{"say":"撞到本鱼了喵"}', 60), { phrase: '撞到本鱼了喵', anim: undefined, img: undefined, toGroup: false, style: {}, format: 'json' }, 'parseDecision 纯 JSON');
 eq(plugin.parseDecision('```json\n{"say":"喵"}\n```', 60).phrase, '喵', 'parseDecision 代码块包裹');
 eq(plugin.parseDecision('{"text":"喵"}', 60).phrase, '喵', 'parseDecision 兼容 text 字段');
 eq(plugin.parseDecision('{"say":"喵","anim":" 跳 "}', 60).anim, '跳', 'parseDecision anim 去空格');
@@ -402,6 +402,18 @@ eq(plugin.normalizeConfig({ gohReactionBudget: 0 }).gohReactionBudget, 0, '0 = �
   eq(bad.modelThinking, '', '非字符串思考档位退回默认');
   const trimmed = normalizeConfig({ ...DEFAULTS, modelThinking: '  high  ' });
   eq(trimmed.modelThinking, 'high', '思考档位去空格');
+}
+
+// ── 9m. 气泡排版：bold / size（2026-10-23）──
+{
+  const { parseDecision } = await import('../index.js');
+  const a = parseDecision('{"say":"吓到了","bold":true,"size":"xl"}', 100);
+  eq(a.style?.bold, true, 'bold 解析');
+  eq(a.style?.size, 'xl', 'size 解析');
+  const b = parseDecision('{"say":"普通一句"}', 100);
+  eq(JSON.stringify(b.style), '{}', '不填就是空样式');
+  const c = parseDecision('{"say":"乱写","size":"huge"}', 100);
+  eq(c.style?.size, undefined, '非法 size 丢弃');
 }
 
 // ── 9j. 表情包扩展名单一来源（扫描/入库/导出共用）──

@@ -1514,8 +1514,15 @@ class PetSprite {
       stack.forEach((item, idx) => {
         const line = document.createElement('div');
         const age = stack.length - 1 - idx; // 0 = 最新
-        line.className = 'pet-bub-line' + (age === 1 ? ' is-old' : age >= 2 ? ' is-older' : '');
-        line.textContent = item.text ?? '';
+        /**
+         * **粗体 / 字号**（2026-10-23）：整句级别，class 由 CSS 定义；
+         * 行内 `**...**` 也会被渲染成加粗（模型很爱这么写）。
+         */
+        const style = item.style || {};
+        const sizeClass = ['s', 'm', 'l', 'xl'].includes(style.size) ? ' size-' + style.size : '';
+        const boldClass = style.bold === true ? ' is-bold' : '';
+        line.className = 'pet-bub-line' + (age === 1 ? ' is-old' : age >= 2 ? ' is-older' : '') + sizeClass + boldClass;
+        appendRichText(line, item.text ?? '');
         this.bubble.appendChild(line);
       });
     } else {
@@ -1546,4 +1553,27 @@ class PetSprite {
     this.bubble.classList.add('is-on');
     window.__dshPetDebug.lastBubbleTitle = this.bubble.textContent.slice(0, 60);
   }
+}
+
+/**
+ * 把 `**粗体**` 渲染成 <strong>（sprite 与 events 各一份，逻辑一致）。
+ * 只处理成对出现的；落单的按普通字符显示。
+ */
+function appendRichText(el, text) {
+  const raw = String(text ?? '');
+  const parts = raw.split('**');
+  if (parts.length < 3) {
+    el.textContent = raw;
+    return;
+  }
+  parts.forEach((part, idx) => {
+    if (!part) return;
+    if (idx % 2 === 1) {
+      const strong = document.createElement('strong');
+      strong.textContent = part;
+      el.appendChild(strong);
+    } else {
+      el.appendChild(document.createTextNode(part));
+    }
+  });
 }
