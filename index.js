@@ -2484,8 +2484,23 @@ function applyInner(ctx, rawConfig, log) {
   }
   buildDb();
 
+  /**
+   * 错误只保留**最近 30 分钟**，并且**任何一次成功都会清空**：
+   * 胶囊的红灯判据是"errors 非空" ✗ —— 以前只进不出，一次网络抖动就永远红 ✔（主人报过）。
+   * 原文都能在 plugin.log 里翻到，界面只需要表达"现在还正常吗"。
+   */
+  const ERROR_TTL_MS = 30 * 60_000;
+  const pruneErrors = () => {
+    const cutoff = Date.now() - ERROR_TTL_MS;
+    state.errors = state.errors.filter((e) => Number(e?.at ?? 0) >= cutoff);
+  };
+  const clearErrors = () => {
+    if (state.errors.length) state.errors = [];
+    state.lastModelError = '';
+  };
   const pushError = (scope, error) => {
     const message = error instanceof Error ? error.message : String(error);
+    pruneErrors();
     state.errors.push({ at: Date.now(), scope, message });
     if (state.errors.length > 20) state.errors.splice(0, state.errors.length - 20);
     log(scope + ': ' + message);
@@ -3099,6 +3114,7 @@ function applyInner(ctx, rawConfig, log) {
       state.chained = (state.chained || 0) + 1;
     }
     state.lastModelMs = ms;
+    clearErrors(); // 这一次成功了：红灯（过去的失败）不该继续亮
     const decision = parseDecision(raw, config.maxChars);
     /**
      * **接话**：前面几轮说的是"同一件事的前几句"，按顺序排队。
@@ -5078,6 +5094,9 @@ function applyInner(ctx, rawConfig, log) {
           fishSpokeAt.set(fishKey, Date.now()); // 这条鱼出错，别每轮都重试
           continue;
         }
+        /** 模型调用成功：这条鱼的连续失败计数清零（菜单里的红灯/错误数跟着下去） */
+        fishRt.errors = 0;
+        fishRt.lastError = '';
         if (!decision.speak || !decision.text) continue;
         fishSpokeAt.set(fishKey, Date.now());
         lastSpokeAt = Date.now();
@@ -5798,7 +5817,7 @@ function applyInner(ctx, rawConfig, log) {
       modelCalls: state.modelCalls || 0,
       modelCallLog: state.modelCallLog || [],
       patch: { file: resolvePatchFile() ?? null },
-      errors: state.errors.slice(-8),
+      errors: (pruneErrors(), state.errors.slice(-8)),
     };
   };
 
