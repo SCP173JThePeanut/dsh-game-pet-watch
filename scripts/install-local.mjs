@@ -137,8 +137,27 @@ function patchProfile(entry, petRoot, dry) {
   const file = join(PROFILE, 'cordis.patch.yml');
   const text = readFileSync(file, 'utf8');
   const lines = text.split('\n');
-  const start = lines.findIndex((l) => /^-\s*id:\s*game-pet-watch\s*$/.test(l));
-  if (start === -1) throw new Error('patch 里没有 game-pet-watch 行（先跑 restore 或手工加一行）');
+  let start = lines.findIndex((l) => /^-\s*id:\s*game-pet-watch\s*$/.test(l));
+  /**
+   * **行不存在就补回来**（2026-10-27 实测：DSH 重写 profile 之后那一行会整段消失，
+   * 下次重启插件直接不加载；旧写法在这里 throw，反而挡住了修复）。
+   */
+  if (start === -1) {
+    if (!dry) {
+      const row = [
+        '- id: game-pet-watch',
+        `  name: 'dsh-game-pet-watch/${entry}'`,
+        '  config:',
+        `    gpwRoot: '${petRoot.replace(/\\/g, '/')}'`,
+        '',
+      ];
+      const trimmed = text.endsWith('\n') ? text : text + '\n';
+      writeFileSync(`${file}.bak-install-${Date.now()}`, text, 'utf8');
+      writeFileSync(file, trimmed + row.join('\n'), 'utf8');
+    }
+    console.log('  ⚠ patch 里没有 game-pet-watch 行，已补回（name + gpwRoot）');
+    return { nameDone: true, rootDone: true, recreated: true };
+  }
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i += 1) {
     if (/^-\s/.test(lines[i])) {

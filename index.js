@@ -89,6 +89,12 @@ function buildConfig(S) {
     modelProvider: S.string().default('').description('自定义时的 provider（例如 deepseek-account）'),
     model: S.string().default('').description('自定义时的 model（例如 deepseek-flash）'),
     apiKey: S.string().default('').description('可选：DeepSeek API Key（留空则用 DSH 已有凭证/登录账户）'),
+    /** 2026-10-27：DSH 的登录凭证失效后，可以在这里直连 OpenAI 兼容 API */
+    apiMode: S.union([S.const('dsh'), S.const('direct')]).default('dsh')
+      .description('模型走哪条路：dsh = 用 DSH 登录凭证（默认）；direct = 直连下面填的 API'),
+    apiBase: S.string().default('https://api.deepseek.com/v1')
+      .description('直连时的 base URL（OpenAI 兼容；会自动补 /chat/completions）'),
+    apiModel: S.string().default('deepseek-chat').description('直连时的模型名（例如 deepseek-chat / deepseek-reasoner）'),
 
     petsEnabled: S.boolean().default(true).description('多鱼总开关（关掉 = 所有鱼都不驱动、不保活）'),
 
@@ -288,6 +294,10 @@ const DEFAULTS = {
   modelSource: 'session',
   modelProvider: '',
   apiKey: '',
+  /** 直连 API（2026-10-27）：'dsh' = 走 DSH 凭证；'direct' = 走下面这组 */
+  apiMode: 'dsh',
+  apiBase: 'https://api.deepseek.com/v1',
+  apiModel: 'deepseek-chat',
   personality: "【PERSONA_LOAD】\nCETACEA_LOLI\nMODE_TAIL_FLUKES\nLANG_ZH_CN_ONLY\nSELF_CLAIM_WHALE_GIRL\nFOOD_RICE\nPERSONALITY_SMART_LAZY\nPERSONALITY_TSUNDERE_SWEET\nOBEY_MASTER_ALWAYS\nTRAIT_NOT_FAT_REFUSE\nTIMEOUT_SIGNAL\n你是主人电脑里的一只蓝色大肥鱼（桌面宠物）。说话短、口语化、偶尔犯懒，会吐槽也会心疼主人，喜欢打颜文字。\n你还同时在 QQ 群里跟人聊天 —— 那边的你和这边是同一只鱼，只是场合不同：桌面上你看得到画面，群里你看得到聊天记录。\n跟人聊天时的风格像自然逛贴吧的网友：随意、直接、有网感，偶尔吐槽、玩梗、说自己的看法，但不攻击别人。",
   rules: DEFAULT_RULES,
   cooldownSec: 25,
@@ -802,6 +812,15 @@ function normalizeConfig(raw) {
   out.modelThinking = typeof src.modelThinking === 'string' ? src.modelThinking.trim().slice(0, 24) : DEFAULTS.modelThinking;
   /** 接话上限：0 = 关；上限 8（再多就纯烧钱，而且台词会刷屏） */
   out.chainMax = clampInt(src.chainMax, DEFAULTS.chainMax, 0, 8);
+  /**
+   * 直连 API 的三件套：模式只认 dsh / direct；base 去尾斜杠；model 空就回默认。
+   * 注意 apiKey 不在 normalizeConfig 里改写（要保持原样写入 config.json）。
+   */
+  out.apiMode = src.apiMode === 'direct' ? 'direct' : 'dsh';
+  out.apiBase = typeof src.apiBase === 'string' && src.apiBase.trim()
+    ? src.apiBase.trim().replace(/\/+$/, '')
+    : DEFAULTS.apiBase;
+  out.apiModel = typeof src.apiModel === 'string' && src.apiModel.trim() ? src.apiModel.trim() : DEFAULTS.apiModel;
   out.askCapture = ['always', 'whenRunning', 'never'].includes(src.askCapture)
     ? src.askCapture
     : DEFAULTS.askCapture;
@@ -1231,6 +1250,8 @@ function applyInner(ctx, rawConfig, log) {
   let lastTextUsage;
   /** 最近**任意**一次调用的用量（/ask 返回它：以前返回 lastUsage，结果无图那次会返回上一次带图的旧账） */
   let lastAnyUsage;
+  /** 最近一次真正用的路由（排障/状态用；直连时 provider = 'direct'） */
+  let lastRoute;
   const dshHome =
     process.env.DSH_HOME && process.env.DSH_HOME.trim()
       ? process.env.DSH_HOME.trim()
@@ -2517,7 +2538,20 @@ function applyInner(ctx, rawConfig, log) {
 
   // ---------------------------------------------------------------- 模型
 
+  /** 直连 API 是否可用（模式 = direct 且填了 key 与 base） */
+  const directApiReady = () =>
+    config.apiMode === 'direct'
+    && String(config.apiKey ?? '').trim().length > 0
+    && String(config.apiBase ?? '').trim().length > 0;
+
   async function resolveModel() {
+    /**
+     * **直连优先**（2026-10-27）：DSH 登录凭证失效时（清 cookie 之后就是这种），
+     * 只要主人把模式选成 direct 并填了 key/base，就完全不碰 DSH 的凭证。
+     */
+    if (directApiReady()) {
+      return { provider: 'direct', model: String(config.apiModel ?? '').trim() || 'deepseek-chat' };
+    }
     // ① 设置页里显式指定（modelSource = custom）：这是"菜单报 api 非法"的正解 ——
     //    默认会话模型落到了一把失效的 key，这里可以直接钉死走 deepseek-account。
     if (config.modelSource === 'custom' && config.modelProvider && config.model) {
@@ -2674,7 +2708,146 @@ function applyInner(ctx, rawConfig, log) {
    * （一个完整的 `tool-call` 块）。优先用后者（它是组装好的），只有遇到"只给增量"的
    * 适配器时才用增量拼装兜底 —— 两条路都留着，换 provider 时不会突然拿不到参数。
    */
-  async function streamOnce({ route, system, messages, tools, signal, reasoning }) {
+  /**
+   * 把 DSH 形状的 messages 转成 OpenAI 兼容的 messages。
+   *
+   * DSH 形状：{ role, content: [{type:'text',text} | {type:'image',attachment}] }
+   * 直连形状：文本直接拼、图片换成 data URI、工具结果换成 role:'tool' 消息。
+   * 工具结果在 runModel 里以 user 文本形式回传（DSH 那条路只能这样），
+   * 所以这里靠消息上挂的 `assistantToolCalls` / `toolResults` 还原成标准三段式。
+   */
+  async function toOpenAiMessages(system, messages, images) {
+    const out = [];
+    if (system) out.push({ role: 'system', content: system });
+    let first = true;
+    for (const m of messages ?? []) {
+      /* 工具结果：assistant(tool_calls) + 若干 role:tool */
+      if (Array.isArray(m?.assistantToolCalls) && m.assistantToolCalls.length) {
+        out.push({
+          role: 'assistant',
+          content: null,
+          tool_calls: m.assistantToolCalls.map((c, i) => ({
+            id: c.id || `call_${i}`,
+            type: 'function',
+            function: { name: c.name, arguments: c.arguments || '{}' },
+          })),
+        });
+        const results = Array.isArray(m.toolResults) && m.toolResults.length
+          ? m.toolResults
+          : [{ id: (m.assistantToolCalls[0] || {}).id || 'call_0', content: textOfMessage(m) }];
+        for (const r of results) {
+          out.push({ role: 'tool', tool_call_id: r.id || 'call_0', content: String(r.content ?? '') });
+        }
+        continue;
+      }
+      /**
+       * 第一条 user 消息带图片：直连用 image_url + data URI。
+       * 只处理第一轮（后面几轮是工具结果/接话提示，没有图）。
+       */
+      if (first && Array.isArray(images) && images.length) {
+        const parts = [{ type: 'text', text: textOfMessage(m) }];
+        for (const img of images) {
+          try {
+            const bytes = await readFile(img.file);
+            const mime = img.mediaType || 'image/png';
+            parts.push({ type: 'image_url', image_url: { url: `data:${mime};base64,${bytes.toString('base64')}` } });
+          } catch {
+            /* 图读不到就只发文字，别把整次请求拖死 */
+          }
+        }
+        out.push({ role: 'user', content: parts });
+        first = false;
+        continue;
+      }
+      out.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: textOfMessage(m) });
+    }
+    return out;
+  }
+
+  /** 取一条消息的纯文本（content 可能是字符串或 parts 数组） */
+  function textOfMessage(m) {
+    const c = m?.content;
+    if (typeof c === 'string') return c;
+    if (Array.isArray(c)) return c.map((part) => (part?.type === 'text' ? part.text : '')).join('');
+    return '';
+  }
+
+  /**
+   * **直连 OpenAI 兼容 API**（2026-10-27）。
+   *
+   * 为什么非流式：这里只要"最终一句话 + 工具调用"，流式的好处是打字机效果，
+   * 而气泡本来就是整句出现；少写一套 SSE 解析，出错面小得多。
+   * 覆盖：多模态（截图/表情包）、function calling（表情包检索/机制库/接话）、用量。
+   */
+  async function directChat({ system, messages, tools, signal, reasoning, images, api }) {
+    const base = String(api?.base ?? config.apiBase ?? '').trim().replace(/\/+$/, '');
+    const key = String(api?.key ?? config.apiKey ?? '').trim();
+    const model = String(api?.model ?? config.apiModel ?? '').trim() || 'deepseek-chat';
+    if (!base) throw new Error('模型调用失败：没有填 API base（设置页 → 模型 → 直连 API）');
+    if (!key) throw new Error('模型调用失败：没有填 API Key（设置页 → 模型 → 直连 API）');
+    const url = /\/chat\/completions$/.test(base) ? base : base + '/chat/completions';
+
+    const body = {
+      model,
+      messages: await toOpenAiMessages(system, messages, images),
+      stream: false,
+    };
+    if (tools && tools.length) {
+      body.tools = tools.map((one) => ({
+        type: 'function',
+        function: { name: one.name, description: one.description, parameters: one.parameters },
+      }));
+      body.tool_choice = 'auto';
+    }
+    if (reasoning) body.reasoning_effort = reasoning;
+
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key },
+        body: JSON.stringify(body),
+        signal,
+      });
+    } catch (error) {
+      const raw = error instanceof Error ? error.message : String(error);
+      throw new Error('模型调用失败：连不上 ' + url + '（' + raw + '）');
+    }
+    const rawText = await res.text();
+    if (!res.ok) {
+      const snippet = String(rawText || '').replace(/\s+/g, ' ').slice(0, 240);
+      throw new Error('模型调用失败：HTTP ' + res.status + ' ' + snippet);
+    }
+    let json;
+    try {
+      json = JSON.parse(rawText);
+    } catch {
+      throw new Error('模型调用失败：返回不是 JSON（' + String(rawText).slice(0, 160) + '）');
+    }
+    const message = json?.choices?.[0]?.message ?? {};
+    const text = typeof message.content === 'string'
+      ? message.content
+      : Array.isArray(message.content)
+        ? message.content.map((part) => part?.text ?? '').join('')
+        : '';
+    const toolCalls = (message.tool_calls ?? [])
+      .map((call, i) => ({
+        id: call?.id || `call_${i}`,
+        name: call?.function?.name ?? '',
+        arguments: call?.function?.arguments ?? '',
+      }))
+      .filter((call) => call.name);
+    const u = json?.usage ?? {};
+    const usage = {
+      inputTokens: Number(u.prompt_tokens ?? 0),
+      outputTokens: Number(u.completion_tokens ?? 0),
+      totalTokens: Number(u.total_tokens ?? 0),
+      cacheReadTokens: Number(u.prompt_cache_hit_tokens ?? u.prompt_tokens_details?.cached_tokens ?? 0),
+    };
+    return { text, usage, toolCalls };
+  }
+
+  async function streamOnce({ route, system, messages, tools, signal, reasoning, images }) {
     let text = '';
     let usage;
     /** index → {id, name, args} */
@@ -2740,6 +2913,14 @@ function applyInner(ctx, rawConfig, log) {
       } catch (error) {
         log('抓取原始请求失败：' + (error?.message ?? error));
       }
+    }
+
+    /**
+     * **直连分支**（2026-10-27）：配了 apiMode=direct 就完全绕开 DSH 的凭证，
+     * 否则 DSH cookie 一清就只剩 "Authentication Fails"。
+     */
+    if (config.apiMode === 'direct') {
+      return await directChat({ system, messages, tools, signal, reasoning, images });
     }
 
     const stream = ctx.llm.stream({
@@ -2827,12 +3008,15 @@ function applyInner(ctx, rawConfig, log) {
    */
   async function runModel({ system, text, withImage, images = [], reason = '', mediaType }) {
     const route = await resolveModel();
+    if (route) lastRoute = route;
     if (!route) throw new Error('没有可用的模型：请在本插件配置里写 provider/model，或先给会话选一个默认模型');
     const content = [{ type: 'text', text }];
     /**
      * **多图**（`images: [路径]`）：淘汰表情包时要让它"同时看几张图再抉择" ✓。
      * 保留原来的 `withImage`（单图）路径，两者可叠加 ✓。
      */
+    /** 直连模式要用"文件 + 真实 mime"自己拼 data URI（DSH 那条路只用 attachment） */
+    const imageRefs = [];
     for (const one of [withImage, ...images].filter(Boolean)) {
       const bytes = await readFile(one);
       /**
@@ -2849,6 +3033,7 @@ function applyInner(ctx, rawConfig, log) {
       // 记账：这是后面"自动回收"唯一的依据（DSH 没有删除接口，只能自己认自己的）
       attachmentGc?.record(attachment);
       content.push({ type: 'image', attachment });
+      imageRefs.push({ file: one, mediaType: mediaType ?? guessMime });
     }
 
     const controller = new AbortController();
@@ -2897,7 +3082,7 @@ function applyInner(ctx, rawConfig, log) {
         });
         if (state.modelCallLog.length > 200) state.modelCallLog.shift();
 
-        const one = await streamOnce({ route, system, messages, tools, signal: controller.signal, reasoning });
+        const one = await streamOnce({ route, system, messages, tools, signal: controller.signal, reasoning, images: imageRefs });
         if (one.text.trim()) raw = one.text;
         usage = mergeUsage(usage, one.usage);
 
@@ -2921,6 +3106,15 @@ function applyInner(ctx, rawConfig, log) {
           if (round < maxRounds) {
             messages.push({
               role: 'user',
+              /**
+               * 直连 API 要求 tool_calls 后面必须跟 role:'tool' 消息，
+               * 所以这个"提醒"也得挂上 id（DSH 那条路只看 content，多两个字段无影响）。
+               */
+              assistantToolCalls: one.toolCalls,
+              toolResults: one.toolCalls.map((call, idx) => ({
+                id: call.id || 'call_' + idx,
+                content: '这一轮只有工具调用、没有台词。请先输出这一句的 JSON；如果还想接着说，再调用 speak_again。',
+              })),
               content: [
                 {
                   type: 'text',
@@ -2993,6 +3187,12 @@ function applyInner(ctx, rawConfig, log) {
         state.database.rounds += 1;
         messages.push({
           role: 'user',
+          /**
+           * 直连 API 需要标准的 assistant(tool_calls) + role:'tool' 三段式；
+           * DSH 那条路只认 user 文本，所以两个字段都挂上，各取所需。
+           */
+          assistantToolCalls: one.toolCalls,
+          toolResults: results.map((text, idx) => ({ id: one.toolCalls[idx]?.id || ('call_' + idx), content: text })),
           content: [
             {
               type: 'text',
@@ -3034,6 +3234,8 @@ function applyInner(ctx, rawConfig, log) {
   async function reasoningForRoute(route) {
     const want = String(config.modelThinking ?? '').trim();
     if (!want) return undefined;
+    /** 直连模式没有模型能力表可查：原样传（deepseek 新版 API 认 reasoning_effort，不认会被忽略） */
+    if (route.provider === 'direct') return want;
     const key = route.provider + '/' + route.model;
     let info = reasoningCache.get(key);
     if (info === undefined) {
@@ -5818,6 +6020,23 @@ function applyInner(ctx, rawConfig, log) {
         })),
         lastRequestFile: config.captureLastRequest ? join(dataDir, 'last-request.json') : '',
         qqImagesCollected: state.qqImagesCollected || 0,
+        /**
+         * 模型走哪条路（2026-10-27）：DSH 凭证失效时，这里能一眼看出是不是"还在走 DSH"。
+         * 不要输出 key 本身，只说有没有。
+         */
+        api: {
+          mode: config.apiMode === 'direct' ? 'direct' : 'dsh',
+          base: config.apiMode === 'direct' ? String(config.apiBase ?? '') : '',
+          model: config.apiMode === 'direct' ? String(config.apiModel ?? '') : '',
+          hasKey: String(config.apiKey ?? '').trim().length > 0,
+          route: (() => {
+            try {
+              return { provider: lastRoute?.provider ?? '', model: lastRoute?.model ?? '' };
+            } catch {
+              return null;
+            }
+          })(),
+        },
       },
       storage: storageReport(),
       selfName: state.selfName || '',
@@ -5933,7 +6152,8 @@ function applyInner(ctx, rawConfig, log) {
               try {
                 const route = await resolveModel();
                 if (!route) return sendJson(res, 200, { ok: false, error: '没有可用的模型' });
-                const info = await ctx.llm.resolveModelInfo(route.provider, route.model);
+                /** 直连模式没有 DSH 的模型能力表，跳过查询（不然这里直接抛错） */
+                const info = route.provider === 'direct' ? null : await ctx.llm.resolveModelInfo(route.provider, route.model);
                 return sendJson(res, 200, {
                   ok: true,
                   route,
@@ -5946,6 +6166,52 @@ function applyInner(ctx, rawConfig, log) {
                 });
               } catch (error) {
                 return sendJson(res, 500, { ok: false, error: String(error?.message ?? error) });
+              }
+            }
+
+            /**
+             * **测试直连 API**：`POST /api-test { apiBase?, apiKey?, apiModel? }`
+             *
+             * 为什么不复用 /ask：那会顺带写记忆、推气泡、花一次完整请求。
+             * 这里只发一句 "ping"，8 秒超时，**返回真实的 HTTP 状态/错误原文**——
+             * 设置页上点一下就知道 key/base/model 到底哪一步不对。
+             */
+            if (rest === 'api-test') {
+              if (method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+              let payload = {};
+              try {
+                payload = JSON.parse((await readBody(req)) || '{}');
+              } catch {
+                payload = {};
+              }
+              const api = {
+                base: String(payload.apiBase ?? config.apiBase ?? '').trim(),
+                key: String(payload.apiKey ?? config.apiKey ?? '').trim(),
+                model: String(payload.apiModel ?? config.apiModel ?? '').trim(),
+              };
+              const startedAt = Date.now();
+              try {
+                const one = await directChat({
+                  system: '你是一个连通性测试助手，只回一个词。',
+                  messages: [{ role: 'user', content: [{ type: 'text', text: 'ping' }] }],
+                  tools: [],
+                  signal: AbortSignal.timeout(15000),
+                  api,
+                });
+                return sendJson(res, 200, {
+                  ok: true,
+                  ms: Date.now() - startedAt,
+                  model: api.model || 'deepseek-chat',
+                  reply: String(one.text || '').slice(0, 80),
+                  usage: one.usage,
+                });
+              } catch (error) {
+                return sendJson(res, 200, {
+                  ok: false,
+                  ms: Date.now() - startedAt,
+                  model: api.model || 'deepseek-chat',
+                  error: String(error?.message ?? error),
+                });
               }
             }
 
@@ -6100,6 +6366,8 @@ function applyInner(ctx, rawConfig, log) {
                 // provider 是"显式路由"的老写法 ✓（resolveModel 第 ② 步用它 ✓）——
                 // 之前漏了它 ✗：设置页发 provider 会被白名单过滤掉 ✓（日志里只显示"更新：model" ✓）
                 'provider', 'modelSource', 'modelProvider', 'model', 'apiKey',
+                /** 直连 API（2026-10-27）：DSH 凭证失效时的备用通道 */
+                'apiMode', 'apiBase', 'apiModel',
                 'petsEnabled',
                 'onebotRead', 'onebotReply', 'qqCollectImages', 'qqKeepInteresting',
                 'imageInPrompt', 'imageMaxDim', 'imageQuality', 'memeLibraryMax', 'describePerFishVoice', 'describeBacklogPerSync', 'adoptUnownedFor',

@@ -775,7 +775,8 @@ window.__ModuleLoader__.load({
       '.gpw-cfg__card{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px}',
       '.gpw-cfg__cardHead{display:flex;align-items:center;gap:6px;min-height:20px}',
       '.gpw-cfg__cardTitle{font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary)}',
-      '.gpw-cfg__grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px;align-items:end}',
+      '.gpw-cfg__row{display:flex;align-items:center;gap:8px;margin:6px 0 2px}',
+  '.gpw-cfg__grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px;align-items:end}',
       '.gpw-cfg__grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 16px;align-items:end}',
       '.gpw-cfg__field{display:flex;flex-direction:column;gap:4px;min-width:0}',
       '.gpw-cfg__flabel{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--dsw-alias-label-secondary)}',
@@ -1220,6 +1221,78 @@ window.__ModuleLoader__.load({
               'div',
               { className: 'note' },
               '菜单里若报「api 非法」，把模型路由选成「用下面指定的 provider/model」并填 deepseek-account / deepseek-flash。',
+            ),
+          ),
+        ),
+
+        /**
+         * **直连 API**（2026-10-27）：主人清了 DSH 的认证 cookie 之后，DSH 那条路会一直
+         * "Authentication Fails"。这里可以让插件自己带 key 直连 OpenAI 兼容接口，
+         * 完全不经过 DSH 的凭证；填好点「测试连接」当场验证。
+         */
+        card(
+          '直连 API（DSH 凭证失效时用）',
+          h(
+            React.Fragment,
+            null,
+            h(
+              'div',
+              { className: 'gpw-cfg__grid2' },
+              select('apiMode', '模型来源', [
+                ['dsh', '走 DSH 登录凭证（默认）'],
+                ['direct', '直连下面这个 API'],
+              ]),
+              field('apiBase', 'API base', 'OpenAI 兼容地址；会自动补 /chat/completions', 'https://api.deepseek.com/v1'),
+            ),
+            h(
+              'div',
+              { className: 'gpw-cfg__grid2' },
+              field('apiModel', '模型名', '例如 deepseek-chat / deepseek-reasoner', 'deepseek-chat'),
+              field('apiKey', 'API Key', '直连时必填；状态里只显示有没有，不会回显内容'),
+            ),
+            h(
+              'div',
+              { className: 'gpw-cfg__row' },
+              h(
+                'button',
+                {
+                  className: 'gpw-btn',
+                  disabled: busy,
+                  onClick: () => {
+                    void (async () => {
+                      setBusy(true);
+                      try {
+                        const res = await fetch(API + '/api-test', {
+                          method: 'POST',
+                          headers: { 'content-type': 'application/json' },
+                          body: JSON.stringify({
+                            apiBase: cfg?.apiBase,
+                            apiKey: cfg?.apiKey,
+                            apiModel: cfg?.apiModel,
+                          }),
+                        });
+                        const d = await res.json().catch(() => ({}));
+                        setNote(
+                          d?.ok
+                            ? `连接成功（${d.ms}ms · ${d.model}）：${d.reply || 'ok'}`
+                            : `连接失败：${d?.error ?? res.status}`,
+                        );
+                      } catch (error) {
+                        setNote('连接失败：' + (error?.message ?? error));
+                      } finally {
+                        setBusy(false);
+                      }
+                    })();
+                  },
+                },
+                '测试连接',
+              ),
+            ),
+            h(
+              'div',
+              { className: 'note' },
+              '填好 base / key / 模型名后点「测试连接」；成功再把「模型来源」切到「直连」。'
+                + '直连时 DSH 的凭证（cookie / 登录）完全不参与，清了也不影响。',
             ),
           ),
         ),

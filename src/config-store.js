@@ -34,6 +34,10 @@ export const EDITABLE_KEYS = [
   'maxWidth',
   'provider',
   'model',
+  /** 直连 API（2026-10-27） */
+  'apiMode',
+  'apiBase',
+  'apiModel',
   'personality',
   'rules',
   'cooldownSec',

@@ -380,6 +380,18 @@ eq(plugin.normalizeConfig({ gohReactionBudget: 0 }).gohReactionBudget, 0, '0 = �
   eq(resolveGpwRoot({ configured: 'D:/mine', packageDir: '/x', fsExists: () => true }), 'D:/mine', '配置优先');
 }
 
+// ── 9n. 直连 API 配置（2026-10-27）──
+{
+  const { normalizeConfig, DEFAULTS } = await import('../index.js');
+  eq(DEFAULTS.apiMode, 'dsh', '默认走 DSH 凭证');
+  eq(DEFAULTS.apiBase, 'https://api.deepseek.com/v1', '默认 base');
+  eq(normalizeConfig({ ...DEFAULTS, apiMode: 'direct' }).apiMode, 'direct', 'direct 保留');
+  eq(normalizeConfig({ ...DEFAULTS, apiMode: '乱写' }).apiMode, 'dsh', '非法模式退回 dsh');
+  eq(normalizeConfig({ ...DEFAULTS, apiBase: 'https://x.test/v1/' }).apiBase, 'https://x.test/v1', 'base 去尾斜杠');
+  eq(normalizeConfig({ ...DEFAULTS, apiBase: '   ' }).apiBase, DEFAULTS.apiBase, '空 base 回默认');
+  eq(normalizeConfig({ ...DEFAULTS, apiModel: '' }).apiModel, DEFAULTS.apiModel, '空 model 回默认');
+}
+
 // ── 9l. 对话带画面三档（2026-10-21）──
 {
   const { normalizeConfig, DEFAULTS } = await import('../index.js');
