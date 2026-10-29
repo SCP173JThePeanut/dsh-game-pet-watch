@@ -380,6 +380,47 @@ eq(plugin.normalizeConfig({ gohReactionBudget: 0 }).gohReactionBudget, 0, '0 = �
   eq(resolveGpwRoot({ configured: 'D:/mine', packageDir: '/x', fsExists: () => true }), 'D:/mine', '配置优先');
 }
 
+// ── 9o. 解析加固（2026-10-29：坏 JSON 不该把原文显示出来）──
+{
+  const { parseDecision } = await import('../index.js');
+  const eq2 = (cond, msg) => eq(Boolean(cond), true, msg);
+
+  // ① 代码围栏 + 后面的废话
+  const fenced = parseDecision('\u0060\u0060\u0060json\n{"say":"围栏里的台词"}\n\u0060\u0060\u0060\n以上。', 80);
+  eq(fenced.phrase, '围栏里的台词', '围栏 JSON');
+  eq(fenced.format, 'json', '围栏仍算标准 JSON');
+
+  // ② 尾逗号
+  eq(parseDecision('{"say":"尾逗号","anim":"跳",}', 80).phrase, '尾逗号', '尾逗号可修');
+
+  // ③ 字符串里有裸换行（非法 JSON）
+  eq(parseDecision('{"say":"第一行\n第二行"}', 80).phrase, '第一行 第二行', '裸换行修成空格');
+
+  // ④ 被截断：没有闭合引号/括号
+  eq(parseDecision('{"say":"说到一半就被截', 80).phrase, '说到一半就被截', '截断也能救出台词');
+
+  // ⑤ 两个 JSON 粘在一起（取有 say 的那个）
+  eq(parseDecision('{"anim":"跳"}{"say":"后面那句"}', 80).phrase, '后面那句', '多对象取有 say 的');
+
+  // ⑥ 带注释
+  eq(parseDecision('{"say":"注释版" // 说明\n}', 80).phrase, '注释版', '行注释可修');
+
+  // ⑦ 中文引号 / 中文冒号
+  eq(parseDecision('{“say”：“中文引号”}', 80).phrase, '中文引号', '中文引号可修');
+
+  // ⑧ 彻底坏掉、且没有台词 → 宁可沉默，也**不能**把 JSON 原文当台词
+  const broken = parseDecision('{"say": }', 80);
+  eq(broken.phrase, undefined, '坏 JSON 没有台词时沉默');
+  eq(broken.format, 'json-broken', '标记为 json-broken');
+
+  // ⑨ 纯文本照旧
+  eq(parseDecision('就是一句普通的话', 80).phrase, '就是一句普通的话', '纯文本仍可用');
+
+  // ⑩ 截断在字段中间、后面还有别的字段
+  const partial = parseDecision('{"say":"半句话","anim":"点击回应-歪头","img":"0001"', 80);
+  eq2(partial.phrase === '半句话' && partial.anim === '点击回应-歪头' && partial.img === '0001', '截断时其它字段也能抽出来');
+}
+
 // ── 9n. 直连 API 配置（2026-10-27）──
 {
   const { normalizeConfig, DEFAULTS } = await import('../index.js');

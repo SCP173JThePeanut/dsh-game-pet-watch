@@ -1072,46 +1072,280 @@ export function computeFishDelayMs({ baseMs, jitterSec = 0, rand = Math.random, 
   return Math.max(minMs, Math.round(base + (r * 2 - 1) * jitter));
 }
 
-export function parseDecision(raw, maxChars) {
-  const text = String(raw ?? '').trim();
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start !== -1 && end > start) {
-    try {
-      const obj = JSON.parse(text.slice(start, end + 1));
-      const say = normalizePhrase(obj?.say ?? obj?.text ?? '', maxChars);
-      const anim = typeof obj?.anim === 'string' ? obj.anim.trim() : '';
-      const img = typeof obj?.img === 'string' ? obj.img.trim() : '';
-      /**
-       * **模型自己要记的事**（可选）：`remember`（也认 `note`）。
-       * 只取一句、限长；写不写由 `memoryAllowSelfNote` 决定（在调用点判断）。
-       */
-      const rawRemember = typeof obj?.remember === 'string' ? obj.remember : typeof obj?.note === 'string' ? obj.note : '';
-      const remember = rawRemember.replace(/\s+/g, ' ').trim().slice(0, 200) || undefined;
-      /**
-       * `toGroup`：**让它自己决定这句话要不要发到群里**（主人要的语义）。
-       * 兼容几种写法（模型不一定听话），非 true 一律当不发 —— 宁可少发，不能刷屏。
-       */
-      const toGroup = obj?.toGroup === true || obj?.toGroup === 'true' || obj?.postGroup === true;
-      /**
-       * **粗体 / 字号**（2026-10-23）：给气泡加点层次，可选、不填就是普通样式。
-       *   bold: true
-       *   size: s | m | l | xl
-       */
-      const bold = obj?.bold === true || obj?.bold === 'true';
-      const sizeRaw = typeof obj?.size === 'string' ? obj.size.trim().toLowerCase() : '';
-      const size = ['s', 'm', 'l', 'xl'].includes(sizeRaw) ? sizeRaw : undefined;
-      const style = { ...(bold ? { bold: true } : {}), ...(size ? { size } : {}) };
-      if (say) return { phrase: say, anim: anim || undefined, img: img || undefined, toGroup, remember, style, format: 'json' };
-      // 是个像样的 JSON 对象但没有可说的内容（{} / {"say":""} / {"silent":true}）→ 就是不说话，
-      // 绝不能退回纯文本，否则会把 "{}" 这种垃圾当台词发出去
-      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
-        return { phrase: undefined, anim: anim || undefined, img: img || undefined, remember, format: 'json' };
+/**
+ * 模型输出解析加固（2026-10-29，主人反馈："有时候解析失败，直接把原始 JSON 显示出来"）。
+ *
+ * 症状：模型吐的 JSON 有点小毛病（尾逗号 / 代码围栏 / 字符串里有换行 / 被截断 / 前面带了别的 JSON），
+ * `JSON.parse` 一失败就落到"纯文本"分支 → **原始 JSON 原样进气泡**。
+ *
+ * 现在的解析顺序（从严格到宽松）：
+ *   ① 原样 JSON（含"第一个 { 到最后一个 }"与**花括号配对扫描**得到的每个对象）
+ *   ② 修一下再解析：去 BOM / 去尾逗号 / 去注释 / 中文引号换英文
+ *   ③ 逐字段抽（`"say": "..."` 这种），支持**未闭合的字符串**（被截断也能拿到半句）
+ *   ④ 看着像 JSON 但一个字段都抽不出来 → **不说话**（绝不把 JSON 当台词显示）并标记 `json-broken`
+ *   ⑤ 真不是 JSON → 才按纯文本走（保留原来的清洗规则）
+ */
+const DECISION_TEXT_KEYS = ['say', 'text'];
+const DECISION_OTHER_KEYS = ['anim', 'img', 'remember', 'note', 'size'];
+
+/** 收集文本里所有**配对完整**的顶层 {...}（认得字符串里的括号与转义） */
+function balancedObjects(text) {
+  const out = [];
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] !== '{') continue;
+    let depth = 0;
+    let inStr = false;
+    let quote = '';
+    let esc = false;
+    for (let j = i; j < text.length; j += 1) {
+      const c = text[j];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (c === '\\') esc = true;
+        else if (c === quote) inStr = false;
+        continue;
       }
-    } catch {
-      /* 落到纯文本 */
+      if (c === '"' || c === "'") {
+        inStr = true;
+        quote = c;
+        continue;
+      }
+      if (c === '{') depth += 1;
+      else if (c === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          out.push(text.slice(i, j + 1));
+          i = j;
+          break;
+        }
+      }
     }
   }
+  return out;
+}
+
+/**
+ * 低风险修补：BOM / 尾逗号 / 注释。**不动引号与中文标点**，所以绝不会改到台词内容。
+ */
+function repairLite(src) {
+  return String(src)
+    .replace(/^\uFEFF/, '')
+    .replace(/,\s*([}\]])/g, '$1')
+    .replace(/\/\/[^\n\r]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
+/**
+ * **结构感知**的标点归一：只替换"字符串外面"的中文标点，字符串里面的原样保留。
+ *   “ ” 「 」 『 』 → "
+ *   ： → :      ， → ,
+ * 为什么必须分内外：`{"say":"时间：12点，别迟到"}` 这种台词里的冒号/逗号不能动。
+ */
+function repairPunctuation(src) {
+  let out = '';
+  let inStr = false;
+  let skip = false;
+  for (let i = 0; i < src.length; i += 1) {
+    const c = src[i];
+    if (inStr) {
+      if (skip) {
+        out += c;
+        skip = false;
+        continue;
+      }
+      if (c === '\\') {
+        out += c;
+        skip = true;
+        continue;
+      }
+      if (c === '"' || c === '”' || c === '」' || c === '』') {
+        out += '"';
+        inStr = false;
+        continue;
+      }
+      out += c;
+      continue;
+    }
+    if (c === '"' || c === '“' || c === '「' || c === '『') {
+      out += '"';
+      inStr = true;
+      continue;
+    }
+    if (c === '：') {
+      out += ':';
+      continue;
+    }
+    if (c === '，') {
+      out += ',';
+      continue;
+    }
+    out += c;
+  }
+  return out;
+}
+
+/** 旧名字保留：先轻修，再标点归一 */
+function repairJsonish(src) {
+  return repairPunctuation(repairLite(src));
+}
+
+/** 试出一份能用的对象：优先带 say/text 的那个，其次任意对象 */
+function tryParseObject(text) {
+  const candidates = [];
+  const first = text.indexOf('{');
+  const last = text.lastIndexOf('}');
+  if (first !== -1 && last > first) candidates.push(text.slice(first, last + 1));
+  candidates.push(...balancedObjects(text));
+  let fallback = null;
+  for (const raw of candidates) {
+    if (!raw || raw.length < 2) continue;
+    for (const attempt of [raw, repairLite(raw), repairJsonish(raw)]) {
+      try {
+        const obj = JSON.parse(attempt);
+        if (!obj || typeof obj !== 'object' || Array.isArray(obj)) continue;
+        if (DECISION_TEXT_KEYS.some((k) => typeof obj[k] === 'string' && obj[k].trim())) return obj;
+        fallback = fallback ?? obj;
+        break;
+      } catch {
+        /* 换下一种修法 */
+      }
+    }
+  }
+  return fallback;
+}
+
+/** 从某个引号开始读一个字符串值；**没闭合也返回已读到的部分**（截断修复的关键） */
+function readQuotedValue(text, from) {
+  const open = text[from];
+  const closer = open === '“' ? '”' : open === '‘' ? '’' : open;
+  let out = '';
+  for (let i = from + 1; i < text.length; i += 1) {
+    const c = text[i];
+    if (c === '\\') {
+      const n = text[i + 1];
+      if (n === 'n') out += '\n';
+      else if (n === 't') out += '\t';
+      else if (n === 'r') out += '';
+      else if (n === 'u') {
+        const hex = text.slice(i + 2, i + 6);
+        const code = Number.parseInt(hex, 16);
+        if (Number.isFinite(code)) {
+          out += String.fromCharCode(code);
+          i += 4;
+        }
+      } else if (n !== undefined) out += n;
+      i += 1;
+      continue;
+    }
+    if (c === closer) return out;
+    if (c === '\n' || c === '\r') {
+      out += ' ';
+      continue;
+    }
+    out += c;
+  }
+  return out;
+}
+
+/** 抽一个字段（支持带引号/不带引号、中文冒号、中文引号、截断） */
+function extractField(text, names) {
+  const re = new RegExp(
+    '["\'""]?(?:' + names.join('|') + ')["\'""]?\\s*[:：]\\s*',
+    'i',
+  );
+  const m = re.exec(text);
+  if (!m) return undefined;
+  let i = m.index + m[0].length;
+  while (i < text.length && /\s/.test(text[i])) i += 1;
+  if (i >= text.length) return undefined;
+  const c = text[i];
+  if (c === '"' || c === "'" || c === '“' || c === '‘') return readQuotedValue(text, i);
+  let j = i;
+  while (j < text.length && !/[,\n\r}\]]/.test(text[j])) j += 1;
+  return text.slice(i, j).trim();
+}
+
+function looksLikeJsonText(text) {
+  const t = String(text ?? '').trim();
+  if (!t) return false;
+  if (/^```/.test(t)) return true;
+  if (/^\s*[[{]/.test(t)) return true;
+  return /"say"\s*[:：]/.test(t) || /'say'\s*[:：]/.test(t);
+}
+
+export function parseDecision(raw, maxChars) {
+  const text = String(raw ?? '').trim();
+  const obj = tryParseObject(text);
+  if (obj) {
+    const say = normalizePhrase(obj?.say ?? obj?.text ?? '', maxChars);
+    const anim = typeof obj?.anim === 'string' ? obj.anim.trim() : '';
+    const img = typeof obj?.img === 'string' ? obj.img.trim() : '';
+    /**
+     * **模型自己要记的事**（可选）：`remember`（也认 `note`）。
+     * 只取一句、限长；写不写由 `memoryAllowSelfNote` 决定（在调用点判断）。
+     */
+    const rawRemember = typeof obj?.remember === 'string' ? obj.remember : typeof obj?.note === 'string' ? obj.note : '';
+    const remember = rawRemember.replace(/\s+/g, ' ').trim().slice(0, 200) || undefined;
+    /**
+     * `toGroup`：**让它自己决定这句话要不要发到群里**（主人要的语义）。
+     * 兼容几种写法（模型不一定听话），非 true 一律当不发 —— 宁可少发，不能刷屏。
+     */
+    const toGroup = obj?.toGroup === true || obj?.toGroup === 'true' || obj?.postGroup === true;
+    /**
+     * **粗体 / 字号**（2026-10-23）：给气泡加点层次，可选、不填就是普通样式。
+     *   bold: true
+     *   size: s | m | l | xl
+     */
+    const bold = obj?.bold === true || obj?.bold === 'true';
+    const sizeRaw = typeof obj?.size === 'string' ? obj.size.trim().toLowerCase() : '';
+    const size = ['s', 'm', 'l', 'xl'].includes(sizeRaw) ? sizeRaw : undefined;
+    const style = { ...(bold ? { bold: true } : {}), ...(size ? { size } : {}) };
+    if (say) return { phrase: say, anim: anim || undefined, img: img || undefined, toGroup, remember, style, format: 'json' };
+    // 是个像样的 JSON 对象但没有可说的内容（{} / {"say":""} / {"silent":true}）→ 就是不说话，
+    // 绝不能退回纯文本，否则会把 "{}" 这种垃圾当台词发出去
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+      return { phrase: undefined, anim: anim || undefined, img: img || undefined, remember, format: 'json' };
+    }
+  }
+
+  /**
+   * **③ 逐字段抽**：JSON 坏掉了（截断/换行没转义/多个对象粘在一起）也能把台词救回来。
+   */
+  const looseSay = extractField(text, DECISION_TEXT_KEYS);
+  if (typeof looseSay === 'string' && looseSay.trim()) {
+    const say = normalizePhrase(looseSay.replace(/\s+/g, ' '), maxChars);
+    const looseAnim = extractField(text, ['anim']);
+    const looseImg = extractField(text, ['img']);
+    const looseRemember = extractField(text, ['remember', 'note']);
+    const looseSize = extractField(text, ['size']);
+    const size = ['s', 'm', 'l', 'xl'].includes(String(looseSize ?? '').trim().toLowerCase())
+      ? String(looseSize).trim().toLowerCase()
+      : undefined;
+    const bold = /["'""]?bold["'""]?\s*[:：]\s*(true|"true"|1)/i.test(text);
+    const toGroup = /["'""]?toGroup["'""]?\s*[:：]\s*(true|"true"|1)/i.test(text);
+    if (say) {
+      return {
+        phrase: say,
+        anim: typeof looseAnim === 'string' && looseAnim.trim() ? looseAnim.trim() : undefined,
+        img: typeof looseImg === 'string' && looseImg.trim() ? looseImg.trim() : undefined,
+        toGroup,
+        remember: typeof looseRemember === 'string' && looseRemember.trim()
+          ? looseRemember.replace(/\s+/g, ' ').trim().slice(0, 200)
+          : undefined,
+        style: { ...(bold ? { bold: true } : {}), ...(size ? { size } : {}) },
+        format: 'repaired',
+      };
+    }
+  }
+
+  /**
+   * **④ 像 JSON 但救不回来** → 这次不说话。
+   * 关键：以前这里会走纯文本分支，于是 `{"say": ...` 直接显示在气泡里（主人报的就是这个）。
+   */
+  if (looksLikeJsonText(text)) {
+    return { phrase: undefined, format: 'json-broken' };
+  }
+
   return { phrase: normalizePhrase(text, maxChars), format: 'text' };
 }
 
@@ -3334,6 +3568,17 @@ function applyInner(ctx, rawConfig, log) {
     state.lastModelMs = ms;
     clearErrors(); // 这一次成功了：红灯（过去的失败）不该继续亮
     const decision = parseDecision(raw, config.maxChars);
+    /**
+     * 解析质量记账（2026-10-29）：坏 JSON 被修回来了算一次 repaired，
+     * 修不回来（宁可沉默也不显示原文）算一次 broken —— 排障时看这两个数就知道模型有多不听话。
+     */
+    if (decision.format === 'repaired') {
+      state.parseRepairs = (state.parseRepairs || 0) + 1;
+      log('模型输出有毛病但已修复（' + String(raw).slice(0, 60).replace(/\s+/g, ' ') + '）');
+    } else if (decision.format === 'json-broken') {
+      state.parseBroken = (state.parseBroken || 0) + 1;
+      log('模型输出坏到修不了，这次不说话（' + String(raw).slice(0, 80).replace(/\s+/g, ' ') + '）');
+    }
     /**
      * **接话**：前面几轮说的是"同一件事的前几句"，按顺序排队。
      * 每一句都单独解析（各自一个 JSON），`remember` 也各自生效。
@@ -6020,6 +6265,9 @@ function applyInner(ctx, rawConfig, log) {
         })),
         lastRequestFile: config.captureLastRequest ? join(dataDir, 'last-request.json') : '',
         qqImagesCollected: state.qqImagesCollected || 0,
+        /** 解析质量：repaired = 坏 JSON 被修回来；broken = 修不了（已改成沉默，不再显示原文） */
+        parseRepairs: state.parseRepairs || 0,
+        parseBroken: state.parseBroken || 0,
         /**
          * 模型走哪条路（2026-10-27）：DSH 凭证失效时，这里能一眼看出是不是"还在走 DSH"。
          * 不要输出 key 本身，只说有没有。
